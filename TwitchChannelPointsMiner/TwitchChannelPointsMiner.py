@@ -69,6 +69,10 @@ class TwitchChannelPointsMiner:
         "original_streamers",
         "logs_file",
         "queue_listener",
+        "followers",
+        "followers_order",
+        "blacklist",
+        "refresh_followers_requested",
     ]
 
     def __init__(
@@ -153,6 +157,11 @@ class TwitchChannelPointsMiner:
         self.start_datetime = None
         self.original_streamers = []
 
+        self.followers = False
+        self.followers_order = FollowersOrder.ASC
+        self.blacklist = []
+        self.refresh_followers_requested = threading.Event()
+
         self.logs_file, self.queue_listener = configure_loggers(
             self.username, logger_settings
         )
@@ -194,6 +203,7 @@ class TwitchChannelPointsMiner:
                 refresh=refresh,
                 days_ago=days_ago,
                 username=self.username,
+                refresh_followers=self.request_followers_refresh,
             )
             http_server.daemon = True
             http_server.name = "Analytics Thread"
@@ -230,6 +240,9 @@ class TwitchChannelPointsMiner:
             )
             self.running = True
             self.start_datetime = datetime.now()
+            self.followers = followers
+            self.followers_order = followers_order
+            self.blacklist = blacklist
 
             self.twitch.login()
 
@@ -265,33 +278,15 @@ class TwitchChannelPointsMiner:
                 extra={"emoji": ":nerd_face:"},
             )
             for username in streamers_name:
-                if username in streamers_name:
-                    time.sleep(random.uniform(0.3, 0.7))
-                    try:
-                        streamer = (
-                            streamers_dict[username]
-                            if isinstance(streamers_dict[username], Streamer) is True
-                            else Streamer(username)
-                        )
-                        streamer.channel_id = self.twitch.get_channel_id(username)
-                        streamer.settings = set_default_settings(
-                            streamer.settings, Settings.streamer_settings
-                        )
-                        streamer.settings.bet = set_default_settings(
-                            streamer.settings.bet, Settings.streamer_settings.bet
-                        )
-                        if streamer.settings.chat != ChatPresence.NEVER:
-                            streamer.irc_chat = ThreadChat(
-                                self.username,
-                                self.twitch.twitch_login.get_auth_token(),
-                                streamer.username,
-                            )
-                        self.streamers.append(streamer)
-                    except StreamerDoesNotExistException:
-                        logger.info(
-                            f"Streamer {username} does not exist",
-                            extra={"emoji": ":cry:"},
-                        )
+                time.sleep(random.uniform(0.3, 0.7))
+                try:
+                    streamer = self.__setup_streamer(username, streamers_dict[username])
+                    self.streamers.append(streamer)
+                except StreamerDoesNotExistException:
+                    logger.info(
+                        f"Streamer {username} does not exist",
+                        extra={"emoji": ":cry:"},
+                    )
 
             # Populate the streamers with default values.
             # 1. Load channel points and auto-claim bonus
@@ -371,31 +366,19 @@ class TwitchChannelPointsMiner:
                 )
 
             for streamer in self.streamers:
-                self.ws_pool.submit(
-                    PubsubTopic("video-playback-by-id", streamer=streamer)
-                )
-
-                if streamer.settings.follow_raid is True:
-                    self.ws_pool.submit(PubsubTopic("raid", streamer=streamer))
-
-                if streamer.settings.make_predictions is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("predictions-channel-v1", streamer=streamer)
-                    )
-
-                if streamer.settings.claim_moments is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("community-moments-channel-v1", streamer=streamer)
-                    )
-
-                if streamer.settings.community_goals is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("community-points-channel-v1", streamer=streamer)
-                    )
+                self.__subscribe_streamer(streamer)
 
             refresh_context = time.time()
             while self.running:
-                time.sleep(random.uniform(20, 60))
+                if self.refresh_followers_requested.wait(random.uniform(20, 60)):
+                    self.refresh_followers_requested.clear()
+                    try:
+                        self.refresh_followers()
+                    except Exception:
+                        logger.error(
+                            "Exception raised during followers refresh",
+                            exc_info=True,
+                        )
                 # Do an external control for WebSocket. Check if the thread is running
                 # Check if is not None because maybe we have already created a new connection on array+1 and now index is None
                 for index in range(0, len(self.ws_pool.ws)):
@@ -416,6 +399,96 @@ class TwitchChannelPointsMiner:
                             self.twitch.load_channel_points_context(
                                 self.streamers[index]
                             )
+
+    def __setup_streamer(self, username, streamer=None):
+        streamer = (
+            streamer if isinstance(streamer, Streamer) is True else Streamer(username)
+        )
+        streamer.channel_id = self.twitch.get_channel_id(username)
+        streamer.settings = set_default_settings(
+            streamer.settings, Settings.streamer_settings
+        )
+        streamer.settings.bet = set_default_settings(
+            streamer.settings.bet, Settings.streamer_settings.bet
+        )
+        if streamer.settings.chat != ChatPresence.NEVER:
+            streamer.irc_chat = ThreadChat(
+                self.username,
+                self.twitch.twitch_login.get_auth_token(),
+                streamer.username,
+            )
+        return streamer
+
+    def __subscribe_streamer(self, streamer):
+        self.ws_pool.submit(PubsubTopic("video-playback-by-id", streamer=streamer))
+
+        if streamer.settings.follow_raid is True:
+            self.ws_pool.submit(PubsubTopic("raid", streamer=streamer))
+
+        if streamer.settings.make_predictions is True:
+            self.ws_pool.submit(
+                PubsubTopic("predictions-channel-v1", streamer=streamer)
+            )
+
+        if streamer.settings.claim_moments is True:
+            self.ws_pool.submit(
+                PubsubTopic("community-moments-channel-v1", streamer=streamer)
+            )
+
+        if streamer.settings.community_goals is True:
+            self.ws_pool.submit(
+                PubsubTopic("community-points-channel-v1", streamer=streamer)
+            )
+
+    def __add_streamer_to_session(self, streamer):
+        # self.streamers and self.original_streamers are index-parallel:
+        # __print_report matches them up by index, so every append here
+        # must be paired. This is also where future unfollow handling
+        # would need to remove the matching pair.
+        self.streamers.append(streamer)
+        self.original_streamers.append(streamer.channel_points)
+
+    def request_followers_refresh(self):
+        if not self.running:
+            return False, "The miner is not running"
+        if self.followers is not True:
+            return False, "Followers list mining is disabled (followers=False)"
+        self.refresh_followers_requested.set()
+        return True, "Followers refresh queued"
+
+    def refresh_followers(self):
+        followers_array = self.twitch.get_followers(order=self.followers_order)
+
+        current_usernames = {streamer.username for streamer in self.streamers}
+        new_usernames = [
+            username
+            for username in followers_array
+            if username not in current_usernames and username not in self.blacklist
+        ]
+
+        added = []
+        for username in new_usernames:
+            time.sleep(random.uniform(0.3, 0.7))
+            try:
+                streamer = self.__setup_streamer(username)
+                self.twitch.load_channel_points_context(streamer)
+                self.twitch.check_streamer_online(streamer)
+            except StreamerDoesNotExistException:
+                logger.info(
+                    f"Streamer {username} does not exist",
+                    extra={"emoji": ":cry:"},
+                )
+                continue
+
+            self.__add_streamer_to_session(streamer)
+            self.__subscribe_streamer(streamer)
+            added.append(streamer.username)
+
+        logger.info(
+            f"Followers refresh: {len(added)} new streamer(s) added"
+            + (f": {', '.join(added)}" if added else ""),
+            extra={"emoji": ":clipboard:"},
+        )
 
     def end(self, signum, frame):
         if not self.running:

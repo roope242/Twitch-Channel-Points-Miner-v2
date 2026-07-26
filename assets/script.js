@@ -110,6 +110,24 @@ $(document).ready(function () {
         }
     });
 
+    // Handle the refresh followers button click event
+    $('#refresh-followers').click(function () {
+        var $button = $(this);
+        $button.prop('disabled', true);
+
+        $.post('/refresh_followers')
+            .done(function (data) {
+                alert(data.status);
+            })
+            .fail(function (xhr) {
+                var message = (xhr.responseJSON && xhr.responseJSON.error) || 'Failed to refresh followers.';
+                alert(message);
+            })
+            .always(function () {
+                $button.prop('disabled', false);
+            });
+    });
+
     // Function to get the full log content
     function getLog() {
         if (isLogCheckboxChecked) {

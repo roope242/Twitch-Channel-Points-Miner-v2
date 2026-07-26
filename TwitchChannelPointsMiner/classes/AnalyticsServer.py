@@ -233,7 +233,8 @@ class AnalyticsServer(Thread):
         port: int = 5000,
         refresh: int = 5,
         days_ago: int = 7,
-        username: str = None
+        username: str = None,
+        refresh_followers=None,
     ):
         super(AnalyticsServer, self).__init__()
 
@@ -244,6 +245,28 @@ class AnalyticsServer(Thread):
         self.refresh = refresh
         self.days_ago = days_ago
         self.username = username
+
+        def trigger_followers_refresh():
+            if refresh_followers is None:
+                return Response(
+                    json.dumps({"error": "Followers refresh is not available."}),
+                    status=503,
+                    mimetype="application/json",
+                )
+
+            success, message = refresh_followers()
+            if success is True:
+                return Response(
+                    json.dumps({"status": message}),
+                    status=202,
+                    mimetype="application/json",
+                )
+            else:
+                return Response(
+                    json.dumps({"error": message}),
+                    status=409,
+                    mimetype="application/json",
+                )
 
         def generate_log():
             global last_sent_log_index  # Use the global variable
@@ -287,6 +310,12 @@ class AnalyticsServer(Thread):
                               json_all, methods=["GET"])
         self.app.add_url_rule(
             "/log", "log", generate_log, methods=["GET"])
+        self.app.add_url_rule(
+            "/refresh_followers",
+            "refresh_followers",
+            trigger_followers_refresh,
+            methods=["POST"],
+        )
 
     def run(self):
         logger.info(
