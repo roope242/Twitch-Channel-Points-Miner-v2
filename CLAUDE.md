@@ -145,8 +145,11 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
   in `logger.py`.
 - Name-mangled `__private` methods for internals on the miner and pool classes.
 - Runtime output directories (`cookies/`, `logs/`, `analytics/`) and `run.py` are all gitignored.
-- **Real Python floor is 3.9**, not the `>=3.6` in `setup.py`: `AnalyticsServer.json_all` uses
-  `str.removesuffix()` and the miner annotates `list[Streamer]` at runtime. Docker uses 3.10.
+- **This fork's Python floor is 3.9**, upstream's is still 3.6. The only thing raising it is
+  `str.removesuffix()` in `AnalyticsServer.json_all`, added here. So a fix cherry-picked upstream
+  must either avoid `removesuffix` or bump `python_requires` there too. (`self.streamers:
+  list[Streamer]` is annotation-only — never evaluated at runtime, verified on 3.8 — so it does
+  *not* raise the floor.) Docker uses 3.10.
 
 ## Sending fixes upstream
 
