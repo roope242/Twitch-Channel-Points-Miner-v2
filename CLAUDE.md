@@ -32,10 +32,11 @@ with a comment. **Any new user-facing option must be added to `example.py` and `
 is how the project documents itself.
 
 Linting is via pre-commit, scoped to `TwitchChannelPointsMiner/` only (black, isort with the black
-profile, flake8 `--max-line-length=88 --extend-ignore=E501`):
+profile, flake8 `--max-line-length=88 --extend-ignore=E501`). It is not installed by default:
 
 ```bash
-pre-commit run --all-files
+python3 -m venv .venv && .venv/bin/pip install pre-commit   # not installed in this environment
+.venv/bin/pre-commit run --all-files
 ```
 
 The repo is **not** uniformly black-formatted despite the hook — large parts of `Twitch.py`,
@@ -144,6 +145,8 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
   in `logger.py`.
 - Name-mangled `__private` methods for internals on the miner and pool classes.
 - Runtime output directories (`cookies/`, `logs/`, `analytics/`) and `run.py` are all gitignored.
+- **Real Python floor is 3.9**, not the `>=3.6` in `setup.py`: `AnalyticsServer.json_all` uses
+  `str.removesuffix()` and the miner annotates `list[Streamer]` at runtime. Docker uses 3.10.
 
 ## Sending fixes upstream
 
@@ -153,6 +156,7 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
 commits, and open it cross-fork:
 
 ```bash
+git remote add upstream https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2.git  # once
 git fetch upstream && git checkout -b <branch> upstream/master
 git cherry-pick <sha>
 gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
