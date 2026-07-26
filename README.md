@@ -78,7 +78,7 @@ If you have any issues or you want to contribute, you are welcome! But please re
 - Improved logging: emojis, colors, files and much more ✔️
 - Final report with all the data ✔️
 - Rewritten codebase now uses classes instead of modules with global variables ✔️
-- Automatic downloading of the list of followers and using it as an input ✔️
+- Automatic downloading of the list of followers and using it as an input, with a manual dashboard refresh ✔️
 - Better 'Watch Streak' strategy in the priority system [#11](https://github.com/Tkd-Alex/Twitch-Channel-Points-Miner-v2/issues/11) ✔️
 - Auto claiming [game drops](https://help.twitch.tv/s/article/mission-based-drops) from the Twitch inventory [#21](https://github.com/Tkd-Alex/Twitch-Channel-Points-Miner-v2/issues/21) ✔️
 - Placing a bet / making a prediction with your channel points [#41](https://github.com/Tkd-Alex/Twitch-Channel-Points-Miner-v2/issues/41) ([@lay295](https://github.com/lay295)) ✔️
@@ -337,6 +337,7 @@ from TwitchChannelPointsMiner import TwitchChannelPointsMiner
 twitch_miner = TwitchChannelPointsMiner("your-twitch-username")
 twitch_miner.mine(followers=True, blacklist=["user1", "user2"])  # Blacklist example
 ```
+If `followers=True` and you follow new channels while the miner is running, you don't need to restart to pick them up: the Analytics dashboard (see [Analytics](#analytics)) has a "Refresh followers" button that queues a refresh, applied by the miner on its next loop iteration. This requires `enable_analytics=True` and a running `analytics()` server. Refreshing only **adds** newly followed channels to the current session; channels you've unfollowed keep being mined until the script is restarted.
 
 ### By cloning the repository
 1. Clone this repository `git clone https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2`
@@ -678,6 +679,10 @@ twitch_miner = TwitchChannelPointsMiner("your-twitch-username")
 twitch_miner.analytics(host="127.0.0.1", port=5000, refresh=5, days_ago=7)   # Analytics web-server
 twitch_miner.mine(followers=True, blacklist=["user1", "user2"])
 ```
+
+The dashboard also has a "Refresh followers" button that lets you queue a followers-list refresh without restarting the script, provided the miner was started with `followers=True`.
+
+Note: `check_assets()` only downloads asset files into `assets/` when they're missing. If you already have an `assets/` folder from a previous version, delete `assets/charts.html` and `assets/script.js` so they get re-downloaded and you pick up the new button.
 
 ### `enable_analytics` option in `twitch_minerfile` toggles Analytics needed for the `analytics()` method
 
