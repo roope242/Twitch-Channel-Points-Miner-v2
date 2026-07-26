@@ -22,6 +22,10 @@ cp example.py run.py          # run.py is gitignored — it holds the user's con
 python run.py                 # first run prints a device code to activate at twitch.tv/activate
 ```
 
+Nothing runs without live Twitch auth, so the only local check on a change is
+`python3 -m py_compile <changed files>`. `flask` and `pandas` are not installed in the dev
+environment — the analytics server cannot be exercised locally.
+
 `example.py` is the canonical documentation of the public surface: every constructor option of
 `TwitchChannelPointsMiner`, `LoggerSettings`, `StreamerSettings`, and `BetSettings` appears there
 with a comment. **Any new user-facing option must be added to `example.py` and `README.md`** — that
@@ -83,6 +87,9 @@ main source of breakage**: Twitch rotates them and the queries start returning e
 recent commit history is exactly this kind of fix. When something suddenly stops working against
 live Twitch, suspect a stale hash or a changed request field before suspecting the logic.
 
+`post_gql_request()` returns `{}` on any request failure, so callers must guard
+`response["data"]` instead of indexing straight into it — several still don't.
+
 `constants.py` also holds spoofed `CLIENT_ID`/`CLIENT_VERSION`/user-agent values (TV app client id
 by default, with browser/mobile/Android alternatives commented out).
 
@@ -100,6 +107,10 @@ during a session cannot currently be dropped. This is the blocker for removing s
 
 `WebSocketsPool.on_message` is a large dispatch on `message.topic`; it resolves the streamer by
 channel id via `get_streamer_index()` each time, so it tolerates the list growing.
+
+The whole dispatch sits inside one `except Exception` that only logs. A typo or a call to a
+method that doesn't exist surfaces as a single error line and nothing else — read this
+handler skeptically and don't trust "no crash" as evidence a branch works.
 
 ### Settings
 
@@ -133,3 +144,16 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
   in `logger.py`.
 - Name-mangled `__private` methods for internals on the miner and pool classes.
 - Runtime output directories (`cookies/`, `logs/`, `analytics/`) and `run.py` are all gitignored.
+
+## Sending fixes upstream
+
+`origin` is the `roope242` fork; its parent is `rdavydov/...`, whose parent is
+`Tkd-Alex/...`. This `CLAUDE.md` exists only on the fork — **never open an upstream PR from
+`master`**, it would carry the file along. Branch off `upstream/master`, cherry-pick the fix
+commits, and open it cross-fork:
+
+```bash
+git fetch upstream && git checkout -b <branch> upstream/master
+git cherry-pick <sha>
+gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
+```
