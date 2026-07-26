@@ -87,9 +87,17 @@ The persisted-query `sha256Hash` values live in `constants.GQLOperations`. **The
 main source of breakage**: Twitch rotates them and the queries start returning errors — much of the
 recent commit history is exactly this kind of fix. When something suddenly stops working against
 live Twitch, suspect a stale hash or a changed request field before suspecting the logic.
+Upstream's tracker confirms it fastest — a rotation produces a burst of `KeyError: 'data'` reports
+there within days: `gh issue list --repo rdavydov/Twitch-Channel-Points-Miner-v2 --search KeyError`.
 
 `post_gql_request()` returns `{}` on any request failure, so callers must guard
-`response["data"]` instead of indexing straight into it — several still don't.
+`response["data"]` instead of indexing straight into it. All 18 call sites are guarded as of
+`d67a9ab`; match one of the existing idioms when adding a caller — `if response != {}`, an
+explicit `"data" not in response` check, `try/except (KeyError, TypeError)`, or a `.get()` chain.
+
+Guarded is not the same as loud: `get_followers()` returns `[]` and `get_channel_id()` raises
+`StreamerDoesNotExistException` on *any* failure. A transient error during a followers refresh
+therefore reads as "0 new streamers" or "that streamer does not exist", not as an error.
 
 `constants.py` also holds spoofed `CLIENT_ID`/`CLIENT_VERSION`/user-agent values (TV app client id
 by default, with browser/mobile/Android alternatives commented out).
