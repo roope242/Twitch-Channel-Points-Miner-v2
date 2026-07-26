@@ -403,7 +403,7 @@ class WebSocketsPool:
                     elif message.topic == "community-points-channel-v1":
                         if message.type == "community-goal-created":
                             # TODO Untested, hard to find this happening live
-                            ws.streamers[streamer_index].add_community_goal(
+                            ws.streamers[streamer_index].update_community_goal(
                                 CommunityGoal.from_pubsub(message.data["community_goal"])
                             )
                         elif message.type == "community-goal-updated":
