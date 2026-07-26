@@ -1008,9 +1008,19 @@ class Twitch(object):
             json_data = copy.deepcopy(GQLOperations.UserPointsContribution)
             json_data["variables"] = {"channelLogin": streamer.username}
             response = self.post_gql_request(json_data)
-            user_goal_contributions = response["data"]["user"]["channel"]["self"][
-                "communityPoints"
-            ]["goalContributions"]
+            user_goal_contributions = None
+            try:
+                user_goal_contributions = response["data"]["user"]["channel"][
+                    "self"
+                ]["communityPoints"]["goalContributions"]
+            except (KeyError, TypeError):
+                pass
+
+            if user_goal_contributions is None:
+                logger.error(
+                    f"Invalid response from contribute_to_community_goals: {response}"
+                )
+                return
 
             logger.debug(
                 f"Found {len(user_goal_contributions)} community goals for the current stream"
@@ -1060,7 +1070,16 @@ class Twitch(object):
 
         response = self.post_gql_request(json_data)
 
-        error = response["data"]["contributeCommunityPointsCommunityGoal"]["error"]
+        try:
+            error = response["data"]["contributeCommunityPointsCommunityGoal"][
+                "error"
+            ]
+        except (KeyError, TypeError):
+            logger.error(
+                f"Invalid response from contribute_to_community_goal: {response}"
+            )
+            return
+
         if error:
             logger.error(
                 f"Unable to contribute channel points to community goal '{title}', reason '{error}'"
