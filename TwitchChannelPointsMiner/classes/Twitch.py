@@ -697,9 +697,6 @@ class Twitch(object):
             if streamer.settings.community_goals is True:
                 self.contribute_to_community_goals(streamer)
 
-            if streamer.settings.community_goals is True:
-                self.contribute_to_community_goals(streamer)
-
     def make_predictions(self, event):
         decision = event.bet.calculate(event.streamer.channel_points)
         # selector_index = 0 if decision["choice"] == "A" else 1
@@ -949,7 +946,7 @@ class Twitch(object):
                     # or ((time.time() - campaigns_update) / 60) > 60
                     # TEMPORARY AUTO DROP CLAIMING FIX
                     # 30 minutes instead of 60 minutes
-                    or ((time.time() - campaigns_update) / 30) > 30
+                    or ((time.time() - campaigns_update) / 60) > 30
                     #####################################
                 ):
                     campaigns_update = time.time()

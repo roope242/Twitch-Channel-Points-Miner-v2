@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from TwitchChannelPointsMiner.classes.Settings import Settings
 from TwitchChannelPointsMiner.utils import percentage
@@ -6,7 +6,7 @@ from TwitchChannelPointsMiner.utils import percentage
 def parse_datetime(datetime_str):
     for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
         try:
-            return datetime.strptime(datetime_str, fmt)
+            return datetime.strptime(datetime_str, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
     raise ValueError(f"time data '{datetime_str}' does not match format")
@@ -47,7 +47,7 @@ class Drop(object):
 
         self.end_at = parse_datetime(dict["endAt"])
         self.start_at = parse_datetime(dict["startAt"])
-        self.dt_match = self.start_at < datetime.now() < self.end_at
+        self.dt_match = self.start_at < datetime.now(timezone.utc) < self.end_at
 
     def update(
         self,
