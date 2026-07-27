@@ -291,7 +291,20 @@ class Twitch(object):
             logger.debug(
                 f"Data: {json_data}, Status code: {response.status_code}, Content: {response.text}"
             )
-            return response.json()
+            parsed_response = response.json()
+            if isinstance(parsed_response, dict) and (
+                "data" not in parsed_response or parsed_response["data"] is None
+            ):
+                operation_name = (
+                    json_data["operationName"]
+                    if isinstance(json_data, dict)
+                    else [item["operationName"] for item in json_data]
+                )
+                logger.error(
+                    f"Error with GQLOperations ({operation_name}): {parsed_response}"
+                )
+                return {}
+            return parsed_response
         except requests.exceptions.RequestException as e:
             logger.error(
                 f"Error with GQLOperations ({json_data['operationName']}): {e}"
@@ -1028,7 +1041,7 @@ class Twitch(object):
 
             for goal_contribution in user_goal_contributions:
                 goal_id = goal_contribution["goal"]["id"]
-                goal = streamer.community_goals[goal_id]
+                goal = streamer.community_goals.get(goal_id)
                 if goal is None:
                     # TODO should this trigger a new load context request
                     logger.error(
