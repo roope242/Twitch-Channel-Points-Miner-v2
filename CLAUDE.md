@@ -22,9 +22,13 @@ cp example.py run.py          # run.py is gitignored — it holds the user's con
 python run.py                 # first run prints a device code to activate at twitch.tv/activate
 ```
 
-Nothing runs without live Twitch auth, so the only local check on a change is
-`python3 -m py_compile <changed files>`. `flask` and `pandas` are not installed in the dev
-environment — the analytics server cannot be exercised locally.
+Nothing runs without live Twitch auth, so the only offline check is
+`python3 -m py_compile <changed files>`. A live run *is* available: `.venv` has every dependency
+(Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
+so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
+and you see nothing. Priming ~74 followers takes ~2.5 minutes before the main loop starts.
+The minute watcher only watches the top 2 streamers by priority, so a newly added streamer is
+usually subscribed but *not* watched — don't read that as a bug.
 
 `example.py` is the canonical documentation of the public surface: every constructor option of
 `TwitchChannelPointsMiner`, `LoggerSettings`, `StreamerSettings`, and `BetSettings` appears there
@@ -90,10 +94,16 @@ live Twitch, suspect a stale hash or a changed request field before suspecting t
 Upstream's tracker confirms it fastest — a rotation produces a burst of `KeyError: 'data'` reports
 there within days: `gh issue list --repo rdavydov/Twitch-Channel-Points-Miner-v2 --search KeyError`.
 
-`post_gql_request()` returns `{}` on any request failure, so callers must guard
-`response["data"]` instead of indexing straight into it. All 18 call sites are guarded as of
-`d67a9ab`; match one of the existing idioms when adding a caller — `if response != {}`, an
-explicit `"data" not in response` check, `try/except (KeyError, TypeError)`, or a `.get()` chain.
+`post_gql_request()` returns `{}` both on request failure and — since `e708b20` — when Twitch
+answers HTTP 200 with an error body (no `data`, or `data: null`), logging the operation name.
+So `if response != {}` is now a real guard, and a rotated hash is visible in the log rather than
+silent. Keep using that idiom for new callers.
+**It can also return a list**: `__get_campaigns_details` posts a list of operations and gets a
+list back, so the sanitization only applies to dict responses. Any change here must preserve that.
+
+`update_client_version()` is called inline in `post_gql_request`'s headers and **never caches** —
+every GQL call first fetches and regexes the whole twitch.tv page, so each request is really two.
+That's the startup cost above, and it's issue #9.
 
 Guarded is not the same as loud: `get_followers()` returns `[]` and `get_channel_id()` raises
 `StreamerDoesNotExistException` on *any* failure. A transient error during a followers refresh
@@ -131,6 +141,10 @@ applied in `__setup_streamer()`.
 The `Events` enum is the routing key for notifications: every `logger.info(..., extra={"event":
 Events.X})` can be forwarded to Telegram/Discord/Webhook/Matrix/Pushover/Gotify depending on which
 events the user listed in `LoggerSettings`. Adding a loggable event type means adding to `Events`.
+
+Those notifiers are called **synchronously inside the log formatter**, on the single
+`QueueListener` thread draining every log record. One hung notification stops all logging,
+console and file, while mining continues — issue #7, and probably upstream's #805.
 
 ### Analytics dashboard
 
