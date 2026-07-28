@@ -18,10 +18,10 @@ class FollowersOrder(Enum):
         return self.name
 
 
-# Empty object shared between class
+# Empty object shared between class. Never instantiated -- attributes are assigned
+# directly on the class, so __slots__ would enforce nothing here.
 class Settings(object):
-    __slots__ = ["logger", "streamer_settings",
-                 "enable_analytics", "disable_ssl_cert_verification", "disable_at_in_nickname"]
+    pass
 
 
 class Events(Enum):
@@ -50,4 +50,4 @@ class Events(Enum):
 
     @classmethod
     def get(cls, key):
-        return getattr(cls, str(key)) if str(key) in dir(cls) else None
+        return cls.__members__.get(str(key))
