@@ -331,6 +331,7 @@ class TwitchChannelPointsMiner:
                 self.sync_campaigns_thread = threading.Thread(
                     target=self.twitch.sync_campaigns,
                     args=(self.streamers,),
+                    daemon=True,  # never block interpreter exit if end() can't join it
                 )
                 self.sync_campaigns_thread.name = "Sync campaigns/inventory"
                 self.sync_campaigns_thread.start()
@@ -339,6 +340,7 @@ class TwitchChannelPointsMiner:
             self.minute_watcher_thread = threading.Thread(
                 target=self.twitch.send_minute_watched_events,
                 args=(self.streamers, self.priority),
+                daemon=True,  # never block interpreter exit if end() can't join it
             )
             self.minute_watcher_thread.name = "Minute watcher"
             self.minute_watcher_thread.start()
@@ -540,8 +542,15 @@ class TwitchChannelPointsMiner:
         # Prevent breaks of .json file
         for streamer in self.streamers:
             if streamer.mutex.locked():
-                streamer.mutex.acquire()
-                streamer.mutex.release()
+                # Bounded: a worker that overran its join and still holds
+                # this lock must not block the rest of teardown forever.
+                if streamer.mutex.acquire(timeout=SHUTDOWN_JOIN_TIMEOUT) is True:
+                    streamer.mutex.release()
+                else:
+                    logger.warning(
+                        f"Mutex for {streamer.username} still locked, "
+                        "its analytics file may be incomplete"
+                    )
 
         # A session never started (Ctrl+C before run()) has no duration or
         # points gained to report.
