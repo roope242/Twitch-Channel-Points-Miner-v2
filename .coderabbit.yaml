@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Keeps review behaviour in the repo rather than in an org setting that is
+# invisible from a checkout. Note this does not affect the account's PR review
+# quota -- a "Review limit reached" notice is a billing/entitlement matter, not
+# something config can turn on.
+language: en-US
+reviews:
+  # chill, not quiet: on PR #17 chill surfaced three findings and all three
+  # were real defects, one of which made the fix inert.
+  profile: chill
+  auto_review:
+    enabled: true
+    drafts: false
