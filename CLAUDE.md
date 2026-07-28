@@ -26,7 +26,7 @@ Nothing runs without live Twitch auth, so the only offline check is
 `python3 -m py_compile <changed files>`. A live run *is* available: `.venv` has every dependency
 (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
 so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
-and you see nothing. Priming ~74 followers takes ~2.5 minutes before the main loop starts.
+and you see nothing. Priming ~74 followers takes ~2 minutes before the main loop starts.
 The minute watcher only watches the top 2 streamers by priority, so a newly added streamer is
 usually subscribed but *not* watched — don't read that as a bug.
 
@@ -101,9 +101,12 @@ silent. Keep using that idiom for new callers.
 **It can also return a list**: `__get_campaigns_details` posts a list of operations and gets a
 list back, so the sanitization only applies to dict responses. Any change here must preserve that.
 
-`update_client_version()` is called inline in `post_gql_request`'s headers and **never caches** —
-every GQL call first fetches and regexes the whole twitch.tv page, so each request is really two.
-That's the startup cost above, and it's issue #9.
+`update_client_version()` is called inline in `post_gql_request`'s headers, but since the fix for
+issue #9 it caches behind a 30-minute TTL (`CLIENT_VERSION_TTL`) and its fetch has `timeout=20`.
+Before that every GQL call first fetched and regexed the whole twitch.tv page, so each request was
+really two. Measured on the same host, same 74 followers: 294 page fetches in a 13-minute run
+before, 1 in a 3-minute run after. Only a *successful* fetch+match advances the timestamp, so a
+failure retries on the next call rather than being cached; failures still serve the previous value.
 
 Guarded is not the same as loud: `get_followers()` returns `[]` and `get_channel_id()` raises
 `StreamerDoesNotExistException` on *any* failure. A transient error during a followers refresh

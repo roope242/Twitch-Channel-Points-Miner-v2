@@ -50,6 +50,9 @@ from TwitchChannelPointsMiner.utils import (
 
 logger = logging.getLogger(__name__)
 JsonType = Dict[str, Any]
+# The twilightBuildID only changes on Twitch's own deploy cadence (hours to days),
+# not per-request, so caching it for a while is safe.
+CLIENT_VERSION_TTL = 30 * 60
 
 
 class Twitch(object):
@@ -63,6 +66,7 @@ class Twitch(object):
         # "integrity_expire",
         "client_session",
         "client_version",
+        "client_version_updated_at",
         "twilight_build_id_pattern",
     ]
 
@@ -82,6 +86,7 @@ class Twitch(object):
         # self.integrity_expire = 0
         self.client_session = token_hex(16)
         self.client_version = CLIENT_VERSION
+        self.client_version_updated_at = float("-inf")
         self.twilight_build_id_pattern = re.compile(
             r'window\.__twilightBuildID\s*=\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"'
         )
@@ -368,8 +373,10 @@ class Twitch(object):
             return False"""
 
     def update_client_version(self):
+        if time.monotonic() - self.client_version_updated_at < CLIENT_VERSION_TTL:
+            return self.client_version
         try:
-            response = requests.get(URL)
+            response = requests.get(URL, timeout=20)
             if response.status_code != 200:
                 logger.debug(
                     f"Error with update_client_version: {response.status_code}"
@@ -380,6 +387,7 @@ class Twitch(object):
                 logger.debug("Error with update_client_version: no match")
                 return self.client_version
             self.client_version = matcher.group(1)
+            self.client_version_updated_at = time.monotonic()
             logger.debug(f"Client version: {self.client_version}")
             return self.client_version
         except requests.exceptions.RequestException as e:
