@@ -3,6 +3,7 @@ from textwrap import dedent
 import requests
 
 from TwitchChannelPointsMiner.classes.Settings import Events
+from TwitchChannelPointsMiner.constants import REQUESTS_TIMEOUT
 
 class Gotify(object):
     __slots__ = ["endpoint", "priority", "events"]
@@ -20,4 +21,5 @@ class Gotify(object):
                     "message": dedent(message),
                     "priority": self.priority
                 },
+                timeout=REQUESTS_TIMEOUT,
             )

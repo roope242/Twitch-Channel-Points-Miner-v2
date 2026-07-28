@@ -30,6 +30,9 @@ USER_AGENTS = {
     }
 }
 
+# requests has no default timeout, so a blackholed connection hangs the calling thread forever
+REQUESTS_TIMEOUT = 10
+
 BRANCH = "master"
 GITHUB_url = (
     "https://raw.githubusercontent.com/rdavydov/Twitch-Channel-Points-Miner-v2/"

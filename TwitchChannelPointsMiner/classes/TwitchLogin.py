@@ -17,7 +17,12 @@ from TwitchChannelPointsMiner.classes.Exceptions import (
     BadCredentialsException,
     WrongCookiesException,
 )
-from TwitchChannelPointsMiner.constants import CLIENT_ID, GQLOperations, USER_AGENTS
+from TwitchChannelPointsMiner.constants import (
+    CLIENT_ID,
+    GQLOperations,
+    USER_AGENTS,
+    REQUESTS_TIMEOUT,
+)
 
 from datetime import datetime, timedelta, timezone
 from time import sleep
@@ -204,7 +209,7 @@ class TwitchLogin(object):
             "Referer": "https://android.tv.twitch.tv/",
             "User-Agent": USER_AGENTS["Android"]["TV"],
             "X-Device-Id": self.device_id
-        },)
+        }, timeout=REQUESTS_TIMEOUT,)
         return response
 
     def login_flow_backup(self, password=None):
@@ -343,7 +348,9 @@ class TwitchLogin(object):
     def __set_user_id(self):
         json_data = copy.deepcopy(GQLOperations.GetIDFromLogin)
         json_data["variables"]["login"] = self.username
-        response = self.session.post(GQLOperations.url, json=json_data)
+        response = self.session.post(
+            GQLOperations.url, json=json_data, timeout=REQUESTS_TIMEOUT
+        )
 
         if response.status_code == 200:
             json_response = response.json()

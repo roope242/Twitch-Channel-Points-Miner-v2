@@ -3,6 +3,7 @@ from textwrap import dedent
 import requests
 
 from TwitchChannelPointsMiner.classes.Settings import Events
+from TwitchChannelPointsMiner.constants import REQUESTS_TIMEOUT
 
 
 class Pushover(object):
@@ -27,4 +28,5 @@ class Pushover(object):
                     "priority": self.priority,
                     "sound": self.sound,
                 },
+                timeout=REQUESTS_TIMEOUT,
             )

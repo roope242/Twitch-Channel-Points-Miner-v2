@@ -41,6 +41,7 @@ from TwitchChannelPointsMiner.constants import (
     CLIENT_VERSION,
     URL,
     GQLOperations,
+    REQUESTS_TIMEOUT,
 )
 from TwitchChannelPointsMiner.utils import (
     _millify,
@@ -146,13 +147,14 @@ class Twitch(object):
             headers = {"User-Agent": USER_AGENTS["Linux"]["FIREFOX"]}
 
             main_page_request = requests.get(
-                streamer.streamer_url, headers=headers)
+                streamer.streamer_url, headers=headers, timeout=REQUESTS_TIMEOUT)
             response = main_page_request.text
             # logger.info(response)
             regex_settings = "(https://static.twitchcdn.net/config/settings.*?js|https://assets.twitch.tv/config/settings.*?.js)"
             settings_url = re.search(regex_settings, response).group(1)
 
-            settings_request = requests.get(settings_url, headers=headers)
+            settings_request = requests.get(
+                settings_url, headers=headers, timeout=REQUESTS_TIMEOUT)
             response = settings_request.text
             regex_spade = '"spade_url":"(.*?)"'
             streamer.stream.spade_url = re.search(
@@ -292,6 +294,7 @@ class Twitch(object):
                     "User-Agent": self.user_agent,
                     "X-Device-Id": self.device_id,
                 },
+                timeout=REQUESTS_TIMEOUT,
             )
             logger.debug(
                 f"Data: {json_data}, Status code: {response.status_code}, Content: {response.text}"

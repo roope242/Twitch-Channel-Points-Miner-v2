@@ -17,8 +17,8 @@ user with the defaults.
 |---|---|---|---|---|---|
 | ~~9~~ | Client version refetched per GQL request | S | High | High | **Closed** — fd55fe6 |
 | ~~5~~ | Blanket `except Exception` hides PubSub bugs | XS | High | High | **Closed** — 5ca56fd |
-| 15 | Assorted small correctness bugs | XS | Low | Low | Open — next |
-| 6 | No HTTP request timeouts | S–M | Med | High | Open — after #15 |
+| ~~15~~ | Assorted small correctness bugs | XS | Low | Low | **Closed** — 1691aff |
+| ~~6~~ | No HTTP request timeouts | S–M | Med | High | **Closed** — see below |
 | 4 | `check_assets()` never updates existing assets | S–M | Med | Med | Open |
 | 14 | Shutdown hangs forever and re-enters itself | S–M | Med | Med | Open |
 | 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | Open |
@@ -46,15 +46,27 @@ exempt as trivial edits.
 Note the honest caveat already in the issue: the `percentage` path runs through `Drop.py`, and
 drops are disabled in this config, so reachability there is unconfirmed.
 
-**#6 — HTTP request timeouts.** Do this second because it removes the `getaddrinfo` monkeypatch
-currently sitting at the top of `run.py`, which is a workaround for exactly this bug.
+**#6 — HTTP request timeouts.** Done: `REQUESTS_TIMEOUT = 10` applied at all 19 live call sites,
+and the GitHub version check moved to a fire-and-forget daemon thread.
 
-Do **not** fix this call site by call site. The issue's own measurements show why a naive
-`timeout=` is not enough — `requests` applies it *per connection attempt*, so with four AAAA
-records a `timeout=10` becomes a ~40s stall rather than a fix. And 13 of 22 call sites are still
-untimed, with `get_spade_url` having been missed on the first pass. The durable shape is a single
-shared default (a module-level session with a configured timeout, or a constant applied at every
-site in one change), plus taking `check_versions()` off the critical startup path entirely.
+The measured behaviour is worth recording, because the timeout alone is genuinely not a fix.
+`requests` applies the timeout *per connection attempt*, so on this host — where IPv6 egress is
+blackholed — `check_versions()` takes **40.3s** (4 AAAA records x 10s) before falling back to
+IPv4 and succeeding. That is why part 2 mattered more than part 1: the version check is now on a
+daemon thread, so its 40s worst case delays nothing.
+
+Which hosts this actually affects, measured rather than assumed:
+
+| host | AAAA records | latency with blackholed IPv6 |
+|---|---|---|
+| `raw.githubusercontent.com` | 4 | ~40s |
+| `gql.twitch.tv` | 1 | 0.3s |
+| `www.twitch.tv` | 1 | 0.1s |
+
+So the Twitch hosts are unaffected and only the GitHub-hosted calls are slow — `check_versions`
+(now backgrounded) and `download_file` (only runs when assets are missing, on the analytics
+daemon thread). On that evidence the IPv4-only `getaddrinfo` monkeypatch at the top of `run.py`
+looks removable, but **this has not been confirmed with a live run** — verify before deleting it.
 
 ### Phase 2 — user-visible correctness
 

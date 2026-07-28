@@ -26,6 +26,7 @@ from TwitchChannelPointsMiner.utils import (
     _millify,
     at_least_one_value_in_settings_is,
     check_versions,
+    get_current_version,
     get_user_agent,
     internet_connection_available,
     set_default_settings,
@@ -166,21 +167,18 @@ class TwitchChannelPointsMiner:
             self.username, logger_settings
         )
 
-        # Check for the latest version of the script
-        current_version, github_version = check_versions()
+        # Check for the latest version of the script. The GitHub fetch runs in the
+        # background so a stalled request can't delay login.
+        current_version = get_current_version()
 
         logger.info(
             f"Twitch Channel Points Miner v2-{current_version} (fork by rdavydov)"
         )
         logger.info("https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2")
 
-        if github_version == "0.0.0":
-            logger.error(
-                "Unable to detect if you have the latest version of this script"
-            )
-        elif current_version != github_version:
-            logger.info(f"You are running version {current_version} of this script")
-            logger.info(f"The latest version on GitHub is {github_version}")
+        threading.Thread(
+            target=check_versions, args=(current_version,), daemon=True
+        ).start()
 
         for sign in [signal.SIGINT, signal.SIGSEGV, signal.SIGTERM]:
             signal.signal(sign, self.end)

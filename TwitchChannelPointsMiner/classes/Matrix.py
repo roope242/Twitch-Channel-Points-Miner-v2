@@ -5,6 +5,7 @@ import requests
 from urllib.parse import quote
 
 from TwitchChannelPointsMiner.classes.Settings import Events
+from TwitchChannelPointsMiner.constants import REQUESTS_TIMEOUT
 
 
 class Matrix(object):
@@ -21,7 +22,8 @@ class Matrix(object):
                 "user": username,
                 "password": password,
                 "type": "m.login.password"
-            }
+            },
+            timeout=REQUESTS_TIMEOUT,
         ).json()
 
         self.access_token = body.get("access_token")
@@ -36,5 +38,6 @@ class Matrix(object):
                 json={
                     "body": dedent(message),
                     "msgtype": "m.text"
-                }
+                },
+                timeout=REQUESTS_TIMEOUT,
             )

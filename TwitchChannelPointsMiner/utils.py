@@ -1,3 +1,4 @@
+import logging
 import platform
 import re
 import socket
@@ -10,7 +11,13 @@ from random import randrange
 import requests
 from millify import millify
 
-from TwitchChannelPointsMiner.constants import USER_AGENTS, GITHUB_url
+from TwitchChannelPointsMiner.constants import (
+    USER_AGENTS,
+    GITHUB_url,
+    REQUESTS_TIMEOUT,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _millify(input, precision=2):
@@ -169,6 +176,7 @@ def download_file(name, fpath):
         path.join(GITHUB_url, name),
         headers={"User-Agent": get_user_agent("FIREFOX")},
         stream=True,
+        timeout=REQUESTS_TIMEOUT,
     )
     if r.status_code == 200:
         with open(fpath, "wb") as f:
@@ -186,7 +194,7 @@ def init2dict(content):
     return dict(re.findall(r"""__([a-z]+)__ = "([^"]+)""", content))
 
 
-def check_versions():
+def get_current_version():
     try:
         current_version = init2dict(read("__init__.py"))
         current_version = (
@@ -194,6 +202,10 @@ def check_versions():
         )
     except Exception:
         current_version = "0.0.0"
+    return current_version
+
+
+def check_versions(current_version):
     try:
         r = requests.get(
             "/".join(
@@ -201,7 +213,8 @@ def check_versions():
                     s.strip("/")
                     for s in [GITHUB_url, "TwitchChannelPointsMiner", "__init__.py"]
                 ]
-            )
+            ),
+            timeout=REQUESTS_TIMEOUT,
         )
         github_version = init2dict(r.text)
         github_version = (
@@ -209,4 +222,9 @@ def check_versions():
         )
     except Exception:
         github_version = "0.0.0"
-    return current_version, github_version
+
+    if github_version == "0.0.0":
+        logger.error("Unable to detect if you have the latest version of this script")
+    elif current_version != github_version:
+        logger.info(f"You are running version {current_version} of this script")
+        logger.info(f"The latest version on GitHub is {github_version}")
