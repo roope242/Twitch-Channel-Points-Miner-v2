@@ -419,6 +419,13 @@ class WebSocketsPool:
                         if message.type in ["community-goal-updated", "community-goal-created"]:
                             ws.twitch.contribute_to_community_goals(ws.streamers[streamer_index])
 
+                except (AttributeError, NameError):
+                    # These mean a bug in the miner itself (e.g. a call to a method
+                    # that doesn't exist), not a Twitch/network problem - surface it loudly.
+                    logger.critical(
+                        f"Bug in the miner while handling topic: {message.topic} and message: {message}",
+                        exc_info=True,
+                    )
                 except Exception:
                     logger.error(
                         f"Exception raised for topic: {message.topic} and message: {message}",
