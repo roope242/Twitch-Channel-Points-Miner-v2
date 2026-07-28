@@ -49,6 +49,11 @@ logging.getLogger("websocket").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
+# Bound every Thread.join() in end() so a single stuck thread can't hang
+# shutdown forever (e.g. under `docker stop`, which escalates to SIGKILL
+# and skips the queue_listener flush at the end of end()).
+SHUTDOWN_JOIN_TIMEOUT = 10
+
 
 class TwitchChannelPointsMiner:
     __slots__ = [
@@ -66,6 +71,7 @@ class TwitchChannelPointsMiner:
         "ws_pool",
         "session_id",
         "running",
+        "shutting_down",
         "start_datetime",
         "original_streamers",
         "logs_file",
@@ -155,6 +161,7 @@ class TwitchChannelPointsMiner:
 
         self.session_id = str(uuid.uuid4())
         self.running = False
+        self.shutting_down = False
         self.start_datetime = None
         self.original_streamers = []
 
@@ -180,7 +187,11 @@ class TwitchChannelPointsMiner:
             target=check_versions, args=(current_version,), daemon=True
         ).start()
 
-        for sign in [signal.SIGINT, signal.SIGSEGV, signal.SIGTERM]:
+        # SIGSEGV deliberately not handled: after a genuine segfault the
+        # interpreter state may be corrupt, and end() joins threads, tears
+        # down sockets, writes JSON and flushes logs - the realistic outcome
+        # is a hang or a second crash, not a clean shutdown.
+        for sign in [signal.SIGINT, signal.SIGTERM]:
             signal.signal(sign, self.end)
 
     def analytics(
@@ -320,6 +331,7 @@ class TwitchChannelPointsMiner:
                 self.sync_campaigns_thread = threading.Thread(
                     target=self.twitch.sync_campaigns,
                     args=(self.streamers,),
+                    daemon=True,  # never block interpreter exit if end() can't join it
                 )
                 self.sync_campaigns_thread.name = "Sync campaigns/inventory"
                 self.sync_campaigns_thread.start()
@@ -328,6 +340,7 @@ class TwitchChannelPointsMiner:
             self.minute_watcher_thread = threading.Thread(
                 target=self.twitch.send_minute_watched_events,
                 args=(self.streamers, self.priority),
+                daemon=True,  # never block interpreter exit if end() can't join it
             )
             self.minute_watcher_thread.name = "Minute watcher"
             self.minute_watcher_thread.start()
@@ -489,9 +502,14 @@ class TwitchChannelPointsMiner:
         )
 
     def end(self, signum, frame):
-        if not self.running:
+        # Thread.join() is interruptible by a signal, so a second Ctrl+C
+        # during the joins below can re-enter end() while self.running is
+        # still True. Guard on a dedicated flag set before anything else.
+        if self.shutting_down is True:
             return
-        
+        self.shutting_down = True
+        self.running = self.twitch.running = False
+
         logger.info("CTRL+C Detected! Please wait just a moment!")
 
         for streamer in self.streamers:
@@ -499,28 +517,48 @@ class TwitchChannelPointsMiner:
                 streamer.irc_chat is not None
                 and streamer.settings.chat != ChatPresence.NEVER
             ):
+                # leave_chat() rebinds irc_chat to a fresh, never-started thread,
+                # so the running one has to be captured before calling it.
+                chat_thread = streamer.irc_chat
                 streamer.leave_chat()
-                if streamer.irc_chat.is_alive() is True:
-                    streamer.irc_chat.join()
+                if chat_thread.is_alive() is True:
+                    chat_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+                    if chat_thread.is_alive() is True:
+                        logger.warning(
+                            f"IRC chat thread for {streamer.username} did not stop in time"
+                        )
 
-        self.running = self.twitch.running = False
         if self.ws_pool is not None:
             self.ws_pool.end()
 
         if self.minute_watcher_thread is not None:
-            self.minute_watcher_thread.join()
+            self.minute_watcher_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+            if self.minute_watcher_thread.is_alive() is True:
+                logger.warning("Minute watcher thread did not stop in time")
 
         if self.sync_campaigns_thread is not None:
-            self.sync_campaigns_thread.join()
+            self.sync_campaigns_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+            if self.sync_campaigns_thread.is_alive() is True:
+                logger.warning("Sync campaigns thread did not stop in time")
 
         # Check if all the mutex are unlocked.
         # Prevent breaks of .json file
         for streamer in self.streamers:
             if streamer.mutex.locked():
-                streamer.mutex.acquire()
-                streamer.mutex.release()
+                # Bounded: a worker that overran its join and still holds
+                # this lock must not block the rest of teardown forever.
+                if streamer.mutex.acquire(timeout=SHUTDOWN_JOIN_TIMEOUT) is True:
+                    streamer.mutex.release()
+                else:
+                    logger.warning(
+                        f"Mutex for {streamer.username} still locked, "
+                        "its analytics file may be incomplete"
+                    )
 
-        self.__print_report()
+        # A session never started (Ctrl+C before run()) has no duration or
+        # points gained to report.
+        if self.start_datetime is not None:
+            self.__print_report()
 
         # Stop the queue listener to make sure all messages have been logged
         self.queue_listener.stop()

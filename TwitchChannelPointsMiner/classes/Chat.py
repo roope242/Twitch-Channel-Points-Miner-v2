@@ -83,6 +83,7 @@ class ThreadChat(Thread):
 
     def __init__(self, username, token, channel):
         super(ThreadChat, self).__init__()
+        self.daemon = True  # never block interpreter exit if end() can't join it
 
         self.username = username
         self.token = token
