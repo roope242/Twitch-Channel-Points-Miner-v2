@@ -22,8 +22,16 @@ cp example.py run.py          # run.py is gitignored — it holds the user's con
 python run.py                 # first run prints a device code to activate at twitch.tv/activate
 ```
 
-Nothing runs without live Twitch auth, so the only offline check is
-`python3 -m py_compile <changed files>`. A live run *is* available: `.venv` has every dependency
+Nothing *mines* without live Twitch auth, but more is testable offline than it looks. Beyond
+`python3 -m py_compile <changed files>`: login happens in `run()`, not `__init__`, so
+`TwitchChannelPointsMiner(username="…", logger_settings=LoggerSettings(save=False,
+console_level=logging.CRITICAL))` constructs offline — enough to exercise `end()`, the signal
+handlers and anything in `utils.py` for real. `__slots__` blocks monkeypatching methods on it
+(`AttributeError: … is read-only`), so drive it through real calls rather than stubs. Do this:
+`py_compile` and a bare `import` both passed on an `end()` that crashed on the first line it
+reached.
+
+A live run *is* available: `.venv` has every dependency
 (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
 so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
 and you see nothing. Priming ~74 followers takes ~2 minutes before the main loop starts.
@@ -71,6 +79,16 @@ State lives in one process across several threads, with **no locking** on the sh
 | Analytics (Flask) | `analytics()`, if `enable_analytics=True` | Dashboard + JSON endpoints |
 | Chat (IRC) | per-streamer `ThreadChat` | Joined lazily when the streamer goes online |
 
+All worker threads are `daemon=True` (since #14) so a stuck one cannot block interpreter exit —
+`sys.exit(0)` only raises on the main thread, and Python waits on non-daemon threads before the
+process ends. `end()` bounds every join and the mutex wait with `SHUTDOWN_JOIN_TIMEOUT`, warns,
+and continues; it guards re-entry on `shutting_down`, not `running`. New threads must follow
+both. SIGSEGV is deliberately not handled.
+
+`Streamer.leave_chat()` stops the current `ThreadChat` and **rebinds `streamer.irc_chat` to a
+fresh, unstarted one**. Anything inspecting or joining the running chat thread must capture it
+*before* that call — `is_alive()` on the replacement is always `False`.
+
 The rule that keeps this safe: **mutate `self.streamers` only from the main thread.** Other threads
 signal intent (e.g. the analytics server sets `refresh_followers_requested`, a `threading.Event`
 the main loop consumes) rather than touching the list. Follow this pattern for anything new that
@@ -107,6 +125,12 @@ Before that every GQL call first fetched and regexed the whole twitch.tv page, s
 really two. Measured on the same host, same 74 followers: 294 page fetches in a 13-minute run
 before, 1 in a 3-minute run after. Only a *successful* fetch+match advances the timestamp, so a
 failure retries on the next call rather than being cached; failures still serve the previous value.
+
+Every live HTTP call passes `timeout=REQUESTS_TIMEOUT` (`constants.py`) since #6 — verify new
+ones with an AST scan rather than grep, since multi-line calls hide from `grep`. Note `requests`
+applies the timeout *per connection attempt*, so N DNS addresses means N × timeout: on a host
+with blackholed IPv6, `raw.githubusercontent.com` (4 AAAA) takes ~40s even with `timeout=10`.
+That is why the GitHub version check runs on a daemon thread rather than in `__init__`.
 
 Guarded is not the same as loud: `get_followers()` returns `[]` and `get_channel_id()` raises
 `StreamerDoesNotExistException` on *any* failure. A transient error during a followers refresh
@@ -180,8 +204,9 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
 ## Sending fixes upstream
 
 `origin` is the `roope242` fork; its parent is `rdavydov/...`, whose parent is
-`Tkd-Alex/...`. This `CLAUDE.md` exists only on the fork — **never open an upstream PR from
-`master`**, it would carry the file along. Branch off `upstream/master`, cherry-pick the fix
+`Tkd-Alex/...`. `CLAUDE.md`, `ISSUES.md` (fork-local triage and fix order) and
+`.coderabbit.yaml` exist only on the fork — **never open an upstream PR from `master`**, it
+would carry them along. Branch off `upstream/master`, cherry-pick the fix
 commits, and open it cross-fork:
 
 ```bash
