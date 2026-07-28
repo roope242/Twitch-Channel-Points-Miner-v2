@@ -171,21 +171,6 @@ def create_chunks(lst, n):
     return [lst[i: (i + n)] for i in range(0, len(lst), n)]  # noqa: E203
 
 
-def download_file(name, fpath):
-    r = requests.get(
-        path.join(GITHUB_url, name),
-        headers={"User-Agent": get_user_agent("FIREFOX")},
-        stream=True,
-        timeout=REQUESTS_TIMEOUT,
-    )
-    if r.status_code == 200:
-        with open(fpath, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024):
-                if chunk:
-                    f.write(chunk)
-    return True
-
-
 def read(fname):
     return open(path.join(path.dirname(__file__), fname), encoding="utf-8").read()
 

@@ -682,7 +682,7 @@ twitch_miner.mine(followers=True, blacklist=["user1", "user2"])
 
 The dashboard also has a "Refresh followers" button that lets you queue a followers-list refresh without restarting the script, provided the miner was started with `followers=True`.
 
-Note: `check_assets()` only downloads asset files into `assets/` when they're missing. If you already have an `assets/` folder from a previous version, delete `assets/charts.html` and `assets/script.js` so they get re-downloaded and you pick up the new button.
+Note: dashboard assets ship with the package. `check_assets()` copies them into your working directory's `assets/` folder, and automatically re-copies any file that differs from the packaged version, so upgrading the package is enough to pick up new dashboard features.
 
 ### `enable_analytics` option in `twitch_minerfile` toggles Analytics needed for the `analytics()` method
 
