@@ -49,6 +49,11 @@ logging.getLogger("websocket").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
+# Bound every Thread.join() in end() so a single stuck thread can't hang
+# shutdown forever (e.g. under `docker stop`, which escalates to SIGKILL
+# and skips the queue_listener flush at the end of end()).
+SHUTDOWN_JOIN_TIMEOUT = 10
+
 
 class TwitchChannelPointsMiner:
     __slots__ = [
@@ -66,6 +71,7 @@ class TwitchChannelPointsMiner:
         "ws_pool",
         "session_id",
         "running",
+        "shutting_down",
         "start_datetime",
         "original_streamers",
         "logs_file",
@@ -155,6 +161,7 @@ class TwitchChannelPointsMiner:
 
         self.session_id = str(uuid.uuid4())
         self.running = False
+        self.shutting_down = False
         self.start_datetime = None
         self.original_streamers = []
 
@@ -180,7 +187,11 @@ class TwitchChannelPointsMiner:
             target=check_versions, args=(current_version,), daemon=True
         ).start()
 
-        for sign in [signal.SIGINT, signal.SIGSEGV, signal.SIGTERM]:
+        # SIGSEGV deliberately not handled: after a genuine segfault the
+        # interpreter state may be corrupt, and end() joins threads, tears
+        # down sockets, writes JSON and flushes logs - the realistic outcome
+        # is a hang or a second crash, not a clean shutdown.
+        for sign in [signal.SIGINT, signal.SIGTERM]:
             signal.signal(sign, self.end)
 
     def analytics(
@@ -489,9 +500,14 @@ class TwitchChannelPointsMiner:
         )
 
     def end(self, signum, frame):
-        if not self.running:
+        # Thread.join() is interruptible by a signal, so a second Ctrl+C
+        # during the joins below can re-enter end() while self.running is
+        # still True. Guard on a dedicated flag set before anything else.
+        if self.shutting_down is True:
             return
-        
+        self.shutting_down = True
+        self.running = self.twitch.running = False
+
         logger.info("CTRL+C Detected! Please wait just a moment!")
 
         for streamer in self.streamers:
@@ -501,17 +517,24 @@ class TwitchChannelPointsMiner:
             ):
                 streamer.leave_chat()
                 if streamer.irc_chat.is_alive() is True:
-                    streamer.irc_chat.join()
+                    streamer.irc_chat.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+                    if streamer.irc_chat.is_alive() is True:
+                        logger.warning(
+                            f"IRC chat thread for {streamer.username} did not stop in time"
+                        )
 
-        self.running = self.twitch.running = False
         if self.ws_pool is not None:
             self.ws_pool.end()
 
         if self.minute_watcher_thread is not None:
-            self.minute_watcher_thread.join()
+            self.minute_watcher_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+            if self.minute_watcher_thread.is_alive() is True:
+                logger.warning("Minute watcher thread did not stop in time")
 
         if self.sync_campaigns_thread is not None:
-            self.sync_campaigns_thread.join()
+            self.sync_campaigns_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+            if self.sync_campaigns_thread.is_alive() is True:
+                logger.warning("Sync campaigns thread did not stop in time")
 
         # Check if all the mutex are unlocked.
         # Prevent breaks of .json file
@@ -520,7 +543,10 @@ class TwitchChannelPointsMiner:
                 streamer.mutex.acquire()
                 streamer.mutex.release()
 
-        self.__print_report()
+        # A session never started (Ctrl+C before run()) has no duration or
+        # points gained to report.
+        if self.start_datetime is not None:
+            self.__print_report()
 
         # Stop the queue listener to make sure all messages have been logged
         self.queue_listener.stop()
