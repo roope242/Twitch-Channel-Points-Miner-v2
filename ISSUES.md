@@ -1,0 +1,112 @@
+# Open issues: triage and fix order
+
+Fork-local planning document for `roope242/Twitch-Channel-Points-Miner-v2`. Not upstream's
+tracker — see `CLAUDE.md` for the fork/upstream relationship and the rule about never opening an
+upstream PR from `master`.
+
+Last updated 2026-07-28, after closing #9 and #5.
+
+## Effort/gain table
+
+"Gain (config)" is measured against the current `run.py`: `make_predictions=False`,
+`claim_drops=False`, `chat=ChatPresence.NEVER`, no notifiers, `enable_analytics=True`,
+`file_level=DEBUG`, and an IPv4-only `getaddrinfo` monkeypatch. "Gain (general)" is for a typical
+user with the defaults.
+
+| # | Title | Effort | Gain (config) | Gain (general) | Status |
+|---|---|---|---|---|---|
+| ~~9~~ | Client version refetched per GQL request | S | High | High | **Closed** — fd55fe6 |
+| ~~5~~ | Blanket `except Exception` hides PubSub bugs | XS | High | High | **Closed** — 5ca56fd |
+| 15 | Assorted small correctness bugs | XS | Low | Low | Open — next |
+| 6 | No HTTP request timeouts | S–M | Med | High | Open — after #15 |
+| 4 | `check_assets()` never updates existing assets | S–M | Med | Med | Open |
+| 14 | Shutdown hangs forever and re-enters itself | S–M | Med | Med | Open |
+| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | Open |
+| 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
+| 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
+| 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
+| 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
+| 11 | Bet sizing and filtering bugs | S–M | **Zero** | High | Open — upstream candidate |
+
+Two entries have zero gain under the current config because they sit on disabled code paths
+(`make_predictions=False` for #11, no notifiers configured for #7). They are still real bugs for
+other users, which is what makes them the two best upstream candidates rather than the two best
+things to fix here.
+
+## Recommended path
+
+### Phase 1 — cheap, and makes everything else observable
+
+**#15 — assorted small correctness bugs.** Three independent one-liners: `percentage(a, 0)`
+raises `ZeroDivisionError` because the short-circuit guards the numerator; `GQLOperations.
+PersonalSections` is a 1-tuple from a stray trailing comma; a `pop` without a default. Each is
+self-contained with no design decision attached. Do them directly, no delegation — they are
+exempt as trivial edits.
+
+Note the honest caveat already in the issue: the `percentage` path runs through `Drop.py`, and
+drops are disabled in this config, so reachability there is unconfirmed.
+
+**#6 — HTTP request timeouts.** Do this second because it removes the `getaddrinfo` monkeypatch
+currently sitting at the top of `run.py`, which is a workaround for exactly this bug.
+
+Do **not** fix this call site by call site. The issue's own measurements show why a naive
+`timeout=` is not enough — `requests` applies it *per connection attempt*, so with four AAAA
+records a `timeout=10` becomes a ~40s stall rather than a fix. And 13 of 22 call sites are still
+untimed, with `get_spade_url` having been missed on the first pass. The durable shape is a single
+shared default (a module-level session with a configured timeout, or a constant applied at every
+site in one change), plus taking `check_versions()` off the critical startup path entirely.
+
+### Phase 2 — user-visible correctness
+
+**#14 — shutdown.** Bounded joins and a re-entrancy guard on `end()`. Low risk, and it affects
+every `Ctrl+C` and `docker stop`. The chat-thread half is unreachable under this config
+(`chat=NEVER`) but the minute-watcher and sync-campaigns joins are not.
+
+**#4 — dashboard assets never refresh.** Worth doing before any further dashboard work, since
+every asset change until then silently fails to reach anyone with an existing `assets/` folder.
+Shipping assets with the package is the clean fix; a version/content check is the cheap one.
+
+**#12 — untrusted text in HTML and URL sinks.** Fix at the **sink**, not the producers:
+`.text(...)` instead of `.append(...)` in `assets/script.js:136`. The amendment on the issue
+explains why escaping producers is the wrong layer — the untrusted text arrives as raw GQL
+response bodies logged at DEBUG (`Twitch.py:297`), not through any formatted message, so a
+producer-side fix would have missed it entirely. Note this depends on #4 shipping first, or the
+fix will not reach anyone with existing assets.
+
+Separately worth deciding on its own merits: whether logging entire response bodies at DEBUG is
+wanted at all, given it also writes auth-adjacent payloads to disk in plaintext.
+
+### Phase 3 — larger
+
+**#10 — PubSub reconnection.** Highest absolute value left, and the largest. Two distinct
+problems: reconnection runs synchronously on the main loop and parks the whole daemon, and the
+`is_reconnecting` guard is a non-atomic check-then-act reached from four threads. Delegate with
+care and read the threading rules in `CLAUDE.md` first — `self.streamers` is mutated only from
+the main thread, `self.streamers`/`self.original_streamers` are index-parallel, and the list is
+passed by reference into every `TwitchWebSocket` so it must never be rebound.
+
+**#13 — device-code login.** Small, but low value here since valid cookies mean this path is
+rarely touched. Reasonable to batch with an upstream submission rather than do standalone.
+
+**#16 — startup sequencing.** Deliberately last. It saves ~60–90s once per start on a process
+that runs for days, and it is the change most likely to introduce a threading bug for that
+payoff. Both the effort and the risk are real; the gain is not.
+
+### Not for this fork
+
+**#7 and #11** are the two strongest upstream candidates: real bugs, reproducible, on code paths
+upstream's users actually run, and both fail in a direction that costs the user something. Per
+the upstream-contribution rules they should go out as focused PRs branched from
+`upstream/master`, not carried here indefinitely. #7 additionally looks like the cause of
+upstream's open #805, which is worth saying in the PR.
+
+## Verification reality
+
+There is no test suite and nothing runs without live Twitch auth. `python3 -m py_compile` is the
+only offline check. A live run is available (`.venv/bin/python -u run.py`, use `-u`) and is the
+only way to confirm anything end to end — priming ~74 followers takes ~2 minutes before the main
+loop starts.
+
+Because of the PubSub catch-all — narrowed but not removed in #5 — "no crash" is still not
+evidence that a branch works. Anything touching `on_message` must be verified by observing the
+intended side effect.
