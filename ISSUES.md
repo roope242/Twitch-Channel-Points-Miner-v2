@@ -19,8 +19,8 @@ user with the defaults.
 | ~~5~~ | Blanket `except Exception` hides PubSub bugs | XS | High | High | **Closed** — 5ca56fd |
 | ~~15~~ | Assorted small correctness bugs | XS | Low | Low | **Closed** — 1691aff |
 | ~~6~~ | No HTTP request timeouts | S–M | Med | High | **Closed** — see below |
-| 4 | `check_assets()` never updates existing assets | S–M | Med | Med | Open |
-| 14 | Shutdown hangs forever and re-enters itself | S–M | Med | Med | Open |
+| ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
+| 4 | `check_assets()` never updates existing assets | S–M | Med | Med | Open — next |
 | 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
@@ -70,9 +70,23 @@ looks removable, but **this has not been confirmed with a live run** — verify 
 
 ### Phase 2 — user-visible correctness
 
-**#14 — shutdown.** Bounded joins and a re-entrancy guard on `end()`. Low risk, and it affects
-every `Ctrl+C` and `docker stop`. The chat-thread half is unreachable under this config
-(`chat=NEVER`) but the minute-watcher and sync-campaigns joins are not.
+**#14 — shutdown.** Done in PR #17. Bounded joins, a dedicated `shutting_down` re-entrancy guard,
+and SIGSEGV dropped from the handled signals.
+
+Two things review caught that the issue itself missed, both worth remembering:
+
+- **Bounded joins alone did not fix it.** The worker threads were non-daemon, and `sys.exit(0)`
+  only raises `SystemExit` on the main thread — Python then waits on every non-daemon thread at
+  interpreter shutdown. A stuck worker produced the new warning and hung anyway. Measured with a
+  deliberately stuck thread: non-daemon had to be killed externally, daemon exits 0. All three
+  workers are now `daemon=True`.
+- **The issue's finding 1 was wrong about chat.** `leave_chat()` rebinds `streamer.irc_chat` to a
+  fresh, never-started thread, so the chat join was always operating on something whose
+  `is_alive()` is `False`. That branch could never have hung, before or after. The minute-watcher
+  and sync-campaigns joins it named were real.
+
+Still unverified: the join-timeout warning branches themselves. Forcing a genuinely stuck worker
+needs a live session, so they are read-correct but have not been observed firing.
 
 **#4 — dashboard assets never refresh.** Worth doing before any further dashboard work, since
 every asset change until then silently fails to reach anyone with an existing `assets/` folder.
