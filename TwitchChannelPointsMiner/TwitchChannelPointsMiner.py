@@ -517,10 +517,13 @@ class TwitchChannelPointsMiner:
                 streamer.irc_chat is not None
                 and streamer.settings.chat != ChatPresence.NEVER
             ):
+                # leave_chat() rebinds irc_chat to a fresh, never-started thread,
+                # so the running one has to be captured before calling it.
+                chat_thread = streamer.irc_chat
                 streamer.leave_chat()
-                if streamer.irc_chat.is_alive() is True:
-                    streamer.irc_chat.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
-                    if streamer.irc_chat.is_alive() is True:
+                if chat_thread.is_alive() is True:
+                    chat_thread.join(timeout=SHUTDOWN_JOIN_TIMEOUT)
+                    if chat_thread.is_alive() is True:
                         logger.warning(
                             f"IRC chat thread for {streamer.username} did not stop in time"
                         )
