@@ -31,6 +31,13 @@ handlers and anything in `utils.py` for real. `__slots__` blocks monkeypatching 
 `py_compile` and a bare `import` both passed on an `end()` that crashed on the first line it
 reached.
 
+Dashboard JS is testable offline too — `node` and `npm` are on this host. `npm install jsdom
+jquery@3.5.1` (match the version `charts.html` pins) in a scratch dir, load the real jQuery into
+a jsdom document with `w.eval(jquerySource)`, and assert on the DOM. This gave a decisive
+before/after on the #12 XSS fix: `.append(string)` created a live `<img onerror=…>`, the text-node
+version created none. Caveat: jsdom does not fire `onerror`/`onload`, so assert on element
+creation and attributes, not on handler execution.
+
 A live run *is* available: `.venv` has every dependency
 (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
 so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
@@ -178,9 +185,12 @@ console and file, while mining continues — issue #7, and probably upstream's #
 `classes/AnalyticsServer.py` is a Flask app in a daemon thread, serving `assets/` (charts.html,
 script.js, style.css…) with per-streamer JSON series read from `analytics/<username>/*.json`.
 
-**Gotcha:** `check_assets()` only downloads asset files from GitHub `master` when they are
-*missing*. Editing `assets/*` in this repo does not reach users who already have an `assets/`
-folder — they must delete the stale files. Say so in the README when changing dashboard assets.
+Assets have two locations and this trips people up. The **source** files live in
+`TwitchChannelPointsMiner/assets/` and ship with the package; edit those. Flask serves the
+**working-directory** `assets/`, which `check_assets()` populates on startup by copying the
+packaged files in and overwriting any whose sha256 differs. So an asset edit reaches existing
+installs on the next start — no README warning needed, and nothing is fetched over the network
+(#4, PR #20). The three README screenshots stay in the repo-root `assets/`.
 
 The server is unauthenticated and defaults to binding `127.0.0.1`. It now has one state-changing
 route (`POST /refresh_followers`); keep that in mind before adding more.
