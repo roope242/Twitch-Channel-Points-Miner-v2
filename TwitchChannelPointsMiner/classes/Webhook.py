@@ -15,7 +15,7 @@ class Webhook(object):
         self.events = [str(e) for e in events]
 
     def send(self, message: str, event: Events) -> None:
-        
+
         if str(event) in self.events:
             # message can be a chat line written by any viewer, so it must not be
             # able to add or terminate query parameters. safe="" also encodes "/".
