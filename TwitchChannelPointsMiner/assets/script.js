@@ -132,8 +132,11 @@ $(document).ready(function () {
     function getLog() {
         if (isLogCheckboxChecked) {
             $.get(`/log?lastIndex=${lastReceivedLogIndex}`, function (data) {
-                // Process and display the new log entries received
-                $("#log-content").append(data);
+                // Process and display the new log entries received.
+                // Append a text node, not a string: jQuery parses a string argument
+                // as HTML, and the log carries raw Twitch text (stream titles, GQL
+                // response bodies at DEBUG) that must never be interpreted as markup.
+                $("#log-content").append(document.createTextNode(data));
                 // Scroll to the bottom of the log content
                 $("#log-content").scrollTop($("#log-content")[0].scrollHeight);
 
