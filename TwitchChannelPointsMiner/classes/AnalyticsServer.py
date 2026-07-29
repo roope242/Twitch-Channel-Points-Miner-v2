@@ -1,6 +1,8 @@
+import hashlib
 import json
 import logging
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -9,7 +11,6 @@ import pandas as pd
 from flask import Flask, Response, cli, render_template, request
 
 from TwitchChannelPointsMiner.classes.Settings import Settings
-from TwitchChannelPointsMiner.utils import download_file
 
 cli.show_server_banner = lambda *_: None
 logger = logging.getLogger(__name__)
@@ -191,18 +192,9 @@ def streamers():
     )
 
 
-def download_assets(assets_folder, required_files):
-    Path(assets_folder).mkdir(parents=True, exist_ok=True)
-    logger.info(f"Downloading assets to {assets_folder}")
-
-    for f in required_files:
-        if os.path.isfile(os.path.join(assets_folder, f)) is False:
-            if (
-                download_file(os.path.join("assets", f),
-                              os.path.join(assets_folder, f))
-                is True
-            ):
-                logger.info(f"Downloaded {f}")
+def _sha256(fpath):
+    with open(fpath, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def check_assets():
@@ -213,16 +205,26 @@ def check_assets():
         "style.css",
         "dark-theme.css",
     ]
+    # Packaged assets ship inside the package so they stay in sync with this
+    # install, instead of being fetched from upstream's GitHub (which would
+    # overwrite fork-local changes such as the refresh-followers button).
+    packaged_folder = os.path.join(os.path.dirname(__file__), "..", "assets")
     assets_folder = os.path.join(Path().absolute(), "assets")
-    if os.path.isdir(assets_folder) is False:
-        logger.info(f"Assets folder not found at {assets_folder}")
-        download_assets(assets_folder, required_files)
-    else:
-        for f in required_files:
-            if os.path.isfile(os.path.join(assets_folder, f)) is False:
-                logger.info(f"Missing file {f} in {assets_folder}")
-                download_assets(assets_folder, required_files)
-                break
+    Path(assets_folder).mkdir(parents=True, exist_ok=True)
+
+    for f in required_files:
+        src = os.path.join(packaged_folder, f)
+        dst = os.path.join(assets_folder, f)
+
+        if os.path.isfile(dst) is False:
+            shutil.copyfile(src, dst)
+            logger.info(f"Installed {f} in {assets_folder}")
+        elif _sha256(src) != _sha256(dst):
+            shutil.copyfile(src, dst)
+            logger.warning(
+                f"{f} in {assets_folder} differed from the packaged version "
+                "and was replaced. If you customised it, your changes were overwritten."
+            )
 
 last_sent_log_index = 0
 
