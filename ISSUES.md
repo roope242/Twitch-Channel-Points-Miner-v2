@@ -4,7 +4,7 @@ Fork-local planning document for `roope242/Twitch-Channel-Points-Miner-v2`. Not 
 tracker — see `CLAUDE.md` for the fork/upstream relationship and the rule about never opening an
 upstream PR from `master`.
 
-Last updated 2026-07-28, after closing #9 and #5.
+Last updated 2026-07-29, after closing #4.
 
 ## Effort/gain table
 
@@ -20,8 +20,9 @@ user with the defaults.
 | ~~15~~ | Assorted small correctness bugs | XS | Low | Low | **Closed** — 1691aff |
 | ~~6~~ | No HTTP request timeouts | S–M | Med | High | **Closed** — see below |
 | ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
-| 4 | `check_assets()` never updates existing assets | S–M | Med | Med | Open — next |
-| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | Open |
+| ~~4~~ | `check_assets()` never updates existing assets | S–M | Med | Med | **Closed** — PR #20 |
+| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | Open — next |
+| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
@@ -88,9 +89,19 @@ Two things review caught that the issue itself missed, both worth remembering:
 Still unverified: the join-timeout warning branches themselves. Forcing a genuinely stuck worker
 needs a live session, so they are read-correct but have not been observed firing.
 
-**#4 — dashboard assets never refresh.** Worth doing before any further dashboard work, since
-every asset change until then silently fails to reach anyone with an existing `assets/` folder.
-Shipping assets with the package is the clean fix; a version/content check is the cheap one.
+**#4 — dashboard assets never refresh.** Done in PR #20. The assets now live in
+`TwitchChannelPointsMiner/assets/` and ship with the package; `check_assets()` copies them into
+the working-directory `assets/` and overwrites on a sha256 mismatch. `download_assets()` and
+`utils.download_file()` are gone — nothing fetches assets over the network anymore.
+
+The download source turned out to be the deeper problem, not just the trigger. `GITHUB_url` points
+at upstream `rdavydov/master`, so a naive refresh-on-mismatch would have *overwritten* fork-local
+asset changes — the refresh-followers button among them — with upstream's version on every start.
+
+Still unverified: that `MANIFEST.in` actually places the assets in a built sdist. `setuptools` and
+`build` are not installed in `.venv`, so no distribution was built. The runtime path is proven —
+`check_assets()` resolves the packaged folder via `os.path.dirname(__file__)/../assets`, which
+works from a checkout regardless of packaging.
 
 **#12 — untrusted text in HTML and URL sinks.** Fix at the **sink**, not the producers:
 `.text(...)` instead of `.append(...)` in `assets/script.js:136`. The amendment on the issue
@@ -101,6 +112,24 @@ fix will not reach anyone with existing assets.
 
 Separately worth deciding on its own merits: whether logging entire response bodies at DEBUG is
 wanted at all, given it also writes auth-adjacent payloads to disk in plaintext.
+
+**#21 — dashboard JS defects.** Same file as #12, so whichever lands second needs a rebase; do #12
+first, it matters more. Surfaced by CodeRabbit reviewing #20: the move made `script.js` and
+`charts.html` read as newly added, so a reviewer looked at them for the first time. All four are
+pre-existing and were verified against the code before filing.
+
+Only one is user-visible: `setTimeout(getLog, 1000)` sits *inside* the `$.get` success callback, so
+a single failed request permanently ends log auto-refresh until the user toggles the checkbox by
+hand. `getStreamerData`'s 5-minute refresh has the same shape. The refresh-followers button already
+uses `.done()/.fail()/.always()` correctly and is the pattern to copy.
+
+The rest are cosmetic: duplicate `#annotations`/`#dark-mode` bindings, an implicit-global
+`displayname`, and missing SRI on four CDN includes.
+
+Worth recording as a review pattern: **a pure `git mv` makes a reviewer read the moved file as new
+code.** Expect findings that predate the change. Keeping the move at 100% similarity is what lets
+the next reader confirm it was faithful without diffing contents — so file the findings rather than
+folding them in, and say so in the PR. CodeRabbit withdrew all five on that argument.
 
 ### Phase 3 — larger
 
