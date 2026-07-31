@@ -9,7 +9,7 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-07-31, mid-session.
+**Last updated:** 2026-07-31, end of session.
 
 ---
 
@@ -65,7 +65,18 @@ Do these in order at the beginning of a session, before starting anything new.
    minutes", which is worthless read a day later. Do not re-trigger before it; re-posting burns
    quota and pushes the window out.
 
-   **Currently blocked:** nothing.
+   **Currently blocked:** PR #25. Quota exhausted; the review never started. The window reopened
+   **2026-07-31 16:00:30 UTC** — long past by the time anyone reads this, so trigger it immediately:
+
+   ```bash
+   gh pr comment 25 --repo roope242/Twitch-Channel-Points-Miner-v2 --body "@coderabbitai review"
+   ./scripts/cr-wait.sh 25
+   ```
+
+   That run is also the **first live test of `cr-wait.sh`**. It has been verified against the
+   archived state of PRs 17, 20, 22 and 25, and correctly reported FINDINGS / CLEAN / CLEAN /
+   BLOCKED — but it has never yet watched a review land in real time. Treat a PENDING that never
+   resolves as a bug in the script, not as a slow review, and check by hand before believing it.
 
 3. **Pick up the task named in "Next up"** below.
 
@@ -75,8 +86,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `f257f02` | Clean, pushed. |
-| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 failing on `master`. Awaiting CodeRabbit. |
+| `master` | `7ba35c7` | Clean, pushed. |
+| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 of them failing on `master`. **Zero reviews — quota blocked, reset 2026-07-31 16:00:30 UTC.** Re-trigger first (step 2 above). |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
@@ -198,6 +209,22 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #23 — CodeRabbit output was mostly packaging (`f257f02`)
+
+Presentation knobs off, findings untouched. Every key was validated against the published schema
+before committing — `"off"` is quoted deliberately, since bare `off` is a YAML boolean and would
+have been silently rejected as a mode.
+
+**Not yet verified, and the point of the change:** no review has run under the new config, so the
+promised drop from 6104 bytes has not been measured. Do that on PR #25's review and record the
+number here. If it has not shrunk, the knobs are wrong and the issue should be reopened rather than
+quietly assumed to have worked.
+
+Two settings were kept on against the general direction of the change: `review_status`, which is
+what carries the "review skipped" and quota notices — losing those would hide exactly the failure
+this session kept hitting — and `enable_prompt_for_ai_agents`, which is signal here rather than
+noise.
 
 ### #12 — untrusted text in HTML and URL sinks (PR #22, `74eb9a8`)
 
