@@ -9,7 +9,7 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01 — review moved off CodeRabbit to a local fresh-context agent.
+**Last updated:** 2026-08-01 — #21 and #27 landed; review runs on a local fresh-context agent.
 
 ---
 
@@ -37,7 +37,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `51591fc` | Clean, pushed. |
+| `master` | `b6736a0` | Clean, pushed. CI green. |
+| **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 
@@ -118,7 +119,8 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #10 (PubSub reconnection).** #21 landed as PR #25 on 2026-08-01, so nothing is open.
+**Start #10 (PubSub reconnection).** #21 and #27 both landed on 2026-08-01; nothing is open.
+There is now a suite and a CI gate, so a delegated concurrency rewrite has something to fail against.
 
 Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
 client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
@@ -153,7 +155,7 @@ user with the defaults.
 | ~~12~~ | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **Closed** — PR #22, `74eb9a8` |
 | ~~21~~ | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | **Closed** — PR #25, `51591fc` |
 | 26 | Polling chains accumulate; log chains duplicate | S | Low | Low–Med | Open — unscheduled |
-| 27 | No test suite; verification harnesses are thrown away | S–M | n/a — tooling | n/a | Open |
+| ~~27~~ | No test suite; verification harnesses are thrown away | S–M | n/a — tooling | n/a | **Closed** — PR #28, `b6736a0` |
 | ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
@@ -170,21 +172,6 @@ things to fix here.
 ---
 
 ## Remaining work
-
-### #27 — a test suite and CI
-
-Filed 2026-08-01. The argument is not "projects should have tests" — it is that this one keeps
-*writing* them and throwing them away. The jsdom harness has been rebuilt from scratch three times
-(#12, #21 twice), each rebuild re-learning the same two traps, and PR #25's final version scored
-20/20 on the fix against 8/20 on the pre-fix code. That is a regression suite that exists nowhere.
-
-Trigger is `pull_request` **and** `push: [master]`: doc and config changes deliberately skip the
-PR, so a PR-only trigger has a hole. Matrix on Python 3.9 and 3.13 — 3.9 is the declared floor
-(`setup.py`), held only by `removesuffix` in `AnalyticsServer.py:162`, and nothing enforces it
-today while the local `.venv` runs 3.14.
-
-Worth doing before #10 if #10 is going to be delegated: a reviewer checking a concurrency rewrite
-is much better off with a suite that runs than with a prose description of what used to work.
 
 ### #10 — PubSub reconnection
 
@@ -224,6 +211,38 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #27 — a test suite and CI (PR #28, `b6736a0`)
+
+`tests/js/script.test.js` (21 jsdom cases against the real `assets/script.js`) and three pytest
+modules, gated by `.github/workflows/tests.yml` on `pull_request`, `push: [master]` and manual
+dispatch, across Python 3.9 and 3.13.
+
+**Run them as `python -m pytest tests/ -q` and `cd tests/js && npm ci && node --test`.** A root
+`conftest.py` exists solely so the bare `pytest` also works — the package is not pip-installed, and
+only the module form puts the repo root on `sys.path`.
+
+Three things worth carrying forward:
+
+- **A suite that passes is not a suite with teeth.** The measurement that mattered was pointing the
+  JS suite at the pre-#21 `script.js`: 9 pass / 12 fail, each broken behaviour named. Do that to any
+  new test before trusting it. It also caught a porting slip — a dropped `if (refresh.length)` guard
+  made a regression abort the whole file with a `TypeError` instead of failing 12 cases cleanly.
+- **CI ran zero Python tests on the first attempt and looked fine locally.** The workflow said
+  `pytest tests/ -v`; the console script does not put the repo root on `sys.path`, so all three
+  modules died at collection. It passed locally only because the local command was `python -m
+  pytest`. Real CI confirmed it: run 30667879498 failed with `ModuleNotFoundError` on both legs.
+  **Run the exact command CI runs, not your habitual one.**
+- **`__init__` is not offline-safe**, despite login living in `run()`. It loops
+  `while not is_connected()` on `socket.gethostbyname("twitch.tv")` forever, five seconds at a
+  time. Tests patch the resolver via the `offline_construction` fixture, and both CI jobs now set
+  `timeout-minutes` so a DNS stall cannot burn the 360-minute default.
+
+**Known coverage gap, deliberately left:** every lifecycle test builds a miner with no streamers,
+no `ws_pool` and no worker threads, so `end()` short-circuits and everything below its first log
+line (`TwitchChannelPointsMiner.py:515-541`) is guarded off. Injecting `AttributeError`s into those
+branches leaves the suite green. Only a crash at the very top of `end()` is caught — which is
+narrower than issue #14's own failure mode. Closing it needs a miner with populated session state.
 
 ### #21 — dashboard JS resilience (PR #25, `51591fc`)
 
