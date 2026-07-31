@@ -5,6 +5,14 @@ without authenticating. See issue #14: a bare `import` and `py_compile` both
 passed on an end() that crashed on its first line, so exercising end() for real
 is the point here.
 
+**Known limit.** These miners have no streamers, no ws_pool, no worker threads
+and start_datetime is None, so end() short-circuits early and the teardown body
+-- thread joins, ws_pool.end(), __print_report() -- never runs. Verified by
+injecting AttributeErrors into those branches: the suite stayed green. Only a
+crash at the very top of end() is caught here. Covering the rest needs a miner
+with populated session state; until then do not read a green run as end() being
+fully exercised.
+
 __init__ is *not* offline-safe on its own, which is why every test here uses the
 offline_construction fixture. Two things reach the network:
 
