@@ -11,6 +11,12 @@ any CodeRabbit review that a quota block stopped the day before. Update its "Sta
 `scripts/cr-wait.sh <pr>` is the only reliable way to detect a CodeRabbit verdict: it submits no
 formal review, so `gh api .../pulls/N/reviews` is always empty, and it edits comments in place —
 deleting text as well as adding it. Do not improvise a poll; see `ISSUES.md` "Start here".
+Run it **unpiped** — `| tail` masks the exit code that is its whole API (0 verdict, 2 quota, 3
+timeout) — and note it lives on `master`, so from a branch that predates it use
+`git show master:scripts/cr-wait.sh > <scratch>/cr-wait.sh`.
+Its verdict outranks any single comment: on PR #25 the *newest* bot comment said "Review finished"
+and affirmed the fix by name, while the "couldn't start this review" quota warning sat in the
+*older* summary comment, edited in place.
 
 ## What this is
 
@@ -55,6 +61,9 @@ callback through `setTimeout`, so stubbing first silently stops every `$(documen
 from running while unrelated assertions still pass. Assert that ready ran. Exceptions inside
 `renderStreamers`'s Promise executor are swallowed into a rejection, surfacing only as an unhandled
 rejection after the run.
+`renderStreamers` also calls `changeStreamer` from a Promise `.then`, so its AJAX call lands at the
+next `await` — inside whatever case is running by then. Await a tick after calling it, or requests
+bleed across test cases.
 
 A live run *is* available: `.venv` has every dependency
 (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
