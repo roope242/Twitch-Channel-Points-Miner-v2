@@ -153,6 +153,7 @@ user with the defaults.
 | ~~12~~ | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **Closed** — PR #22, `74eb9a8` |
 | ~~21~~ | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | **Closed** — PR #25, `51591fc` |
 | 26 | Polling chains accumulate; log chains duplicate | S | Low | Low–Med | Open — unscheduled |
+| 27 | No test suite; verification harnesses are thrown away | S–M | n/a — tooling | n/a | Open |
 | ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
@@ -169,6 +170,21 @@ things to fix here.
 ---
 
 ## Remaining work
+
+### #27 — a test suite and CI
+
+Filed 2026-08-01. The argument is not "projects should have tests" — it is that this one keeps
+*writing* them and throwing them away. The jsdom harness has been rebuilt from scratch three times
+(#12, #21 twice), each rebuild re-learning the same two traps, and PR #25's final version scored
+20/20 on the fix against 8/20 on the pre-fix code. That is a regression suite that exists nowhere.
+
+Trigger is `pull_request` **and** `push: [master]`: doc and config changes deliberately skip the
+PR, so a PR-only trigger has a hole. Matrix on Python 3.9 and 3.13 — 3.9 is the declared floor
+(`setup.py`), held only by `removesuffix` in `AnalyticsServer.py:162`, and nothing enforces it
+today while the local `.venv` runs 3.14.
+
+Worth doing before #10 if #10 is going to be delegated: a reviewer checking a concurrency rewrite
+is much better off with a suite that runs than with a prose description of what used to work.
 
 ### #10 — PubSub reconnection
 
