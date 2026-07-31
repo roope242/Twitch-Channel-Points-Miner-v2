@@ -1,4 +1,4 @@
-from textwrap import dedent
+from urllib.parse import quote
 
 import requests
 
@@ -15,10 +15,16 @@ class Webhook(object):
         self.events = [str(e) for e in events]
 
     def send(self, message: str, event: Events) -> None:
-        
+
         if str(event) in self.events:
-            url = self.endpoint + f"?event_name={str(event)}&message={message}" 
-            
+            # message can be a chat line written by any viewer, so it must not be
+            # able to add or terminate query parameters. safe="" also encodes "/".
+            url = (
+                self.endpoint
+                + f"?event_name={quote(str(event), safe='')}"
+                + f"&message={quote(message, safe='')}"
+            )
+
             if self.method.lower() == "get":
                 requests.get(url=url, timeout=REQUESTS_TIMEOUT)
             elif self.method.lower() == "post":
