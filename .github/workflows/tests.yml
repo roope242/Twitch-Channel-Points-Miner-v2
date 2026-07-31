@@ -1,0 +1,59 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        # `python -m pytest`, not the `pytest` console script: the module form puts
+        # the repo root on sys.path, and the package is not pip-installed here. The
+        # script form fails at collection with ModuleNotFoundError.
+        run: python -m pytest tests/ -v
+
+  javascript:
+    name: JS (jsdom)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        working-directory: tests/js
+        # ci, not install: the lockfile is committed, and this fails loudly if it
+        # has drifted from package.json instead of quietly rewriting it.
+        run: npm ci
+
+      - name: Run node --test
+        working-directory: tests/js
+        run: node --test

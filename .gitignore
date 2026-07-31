@@ -144,6 +144,9 @@ cython_debug/
 run.py
 chromedriver*
 
+# Node (tests/js)
+node_modules/
+
 # Folders
 cookies/*
 logs/*

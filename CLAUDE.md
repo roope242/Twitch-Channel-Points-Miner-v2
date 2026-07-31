@@ -37,8 +37,19 @@ upstream this repo tracks). GPLv3.
 
 ## Running and developing
 
-There is **no test suite** and no build step. The package is a library; users write their own
-entry script:
+There is a test suite (since #27) but no build step, and the suite covers a deliberately narrow
+slice — everything provable without live Twitch auth. Run it before calling anything done:
+
+```bash
+.venv/bin/python -m pytest tests/ -q     # 17 tests; `python -m`, not the bare `pytest` script
+cd tests/js && npm ci && node --test     # 21 jsdom assertions against the real script.js
+```
+
+Both run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python 3.9
+and 3.13). **Add to these rather than rebuilding a throwaway harness** — the jsdom suite was
+rewritten from scratch three times before it was committed, each time re-learning the same traps.
+
+The package is a library; users write their own entry script:
 
 ```bash
 cp example.py run.py          # run.py is gitignored — it holds the user's config and username
@@ -54,9 +65,12 @@ handlers and anything in `utils.py` for real. `__slots__` blocks monkeypatching 
 `py_compile` and a bare `import` both passed on an `end()` that crashed on the first line it
 reached.
 
-Dashboard JS is testable offline too — `node` and `npm` are on this host. `npm install jsdom
-jquery@3.5.1` (match the version `charts.html` pins) in a scratch dir, load the real jQuery into
-a jsdom document with `w.eval(jquerySource)`, and assert on the DOM. This gave a decisive
+Dashboard JS is testable offline too, and `tests/js/script.test.js` already does it — extend that
+file rather than starting over. It loads the real `assets/script.js` into jsdom with the same
+jQuery 3.5.1 that `charts.html` pins, and it is regression-sensitive: pointed at the pre-#21
+script it reports 9 pass / 12 fail rather than passing vacuously. The technique, if you need it
+elsewhere: load real jQuery into a jsdom document with `w.eval(jquerySource)` and assert on the
+DOM. This gave a decisive
 before/after on the #12 XSS fix: `.append(string)` created a live `<img onerror=…>`, the text-node
 version created none. Caveat: jsdom does not fire `onerror`/`onload`, so assert on element
 creation and attributes, not on handler execution.
