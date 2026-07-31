@@ -3,11 +3,73 @@
 # invisible from a checkout. Note this does not affect the account's PR review
 # quota -- a "Review limit reached" notice is a billing/entitlement matter, not
 # something config can turn on.
+#
+# Everything switched off below is presentation, not findings (issue #23). The
+# review of PR #22 found nothing and still cost 6104 bytes / 129 lines to say
+# so. This output is read through `gh api` rather than in a browser, so the
+# packaging is a straight tax on tokens, time and attention -- and skimming a
+# review is how a real finding gets missed.
 language: en-US
+
+# 250 chars max, enforced by the schema.
+tone_instructions: >-
+  Be terse. Lead with the claim, then file:line, then one sentence of why.
+  No preamble, no praise, no restating what the diff does, no summary of the
+  PR. Skip purely stylistic remarks.
+
 reviews:
   # chill, not quiet: on PR #17 chill surfaced three findings and all three
-  # were real defects, one of which made the fix inert.
+  # were real defects, one of which made the fix inert. Trimming presentation
+  # must never turn into trimming findings.
   profile: chill
   auto_review:
     enabled: true
     drafts: false
+
+  # Do not rewrite the PR description. Bodies here are written deliberately --
+  # they carry the verification transcripts and the authorship note -- and a
+  # "Summary by CodeRabbit" block appended to them is duplicated noise.
+  high_level_summary: false
+
+  # Walkthrough trimming. The diff already says which files changed, and a
+  # sequence diagram has never been warranted at the size of change this repo
+  # makes.
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+
+  # Single-maintainer fork: no labels in use, nobody to suggest as a reviewer,
+  # and the 7 open issues are already known without the bot guessing at links.
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+
+  in_progress_fortune: false
+
+  # Kept on deliberately: this posts the "review skipped" and quota notices,
+  # which are the signal that a review did *not* run. Losing those is exactly
+  # the failure mode to avoid -- see ISSUES.md "Start here".
+  review_status: true
+
+  # Also kept on: the agent-targeted prompt in an inline finding is useful
+  # here rather than noise.
+  enable_prompt_for_ai_agents: true
+
+  # A five-row table of passed checks on every PR, telling us what the PR
+  # already said. Note `description` only stays quiet while high_level_summary
+  # is on, so disabling that above would have woken this one up.
+  pre_merge_checks:
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    docstrings:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+
+chat:
+  # ASCII/emoji art in replies.
+  art: false
