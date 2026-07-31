@@ -328,6 +328,13 @@ function getStreamers() {
             // Restore the selected streamer from localStorage on page load
             var selectedStreamer = localStorage.getItem("selectedStreamer");
 
+            // A streamer that has since been removed would otherwise be polled every
+            // five minutes forever, now that the refresh re-schedules on failure too.
+            if (selectedStreamer && !streamersList.some(streamer => streamer.name === selectedStreamer)) {
+                localStorage.removeItem("selectedStreamer");
+                selectedStreamer = null;
+            }
+
             if (selectedStreamer) {
                 currentStreamer = selectedStreamer;
             } else {
