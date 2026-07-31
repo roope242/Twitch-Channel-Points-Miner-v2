@@ -1,0 +1,12 @@
+{
+  "name": "twitch-channel-points-miner-v2-js-tests",
+  "private": true,
+  "description": "jsdom regression suite for TwitchChannelPointsMiner/assets/script.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "30.0.1",
+    "jquery": "3.5.1"
+  }
+}
