@@ -9,7 +9,7 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-07-29, end of session.
+**Last updated:** 2026-07-31, mid-session.
 
 ---
 
@@ -32,20 +32,31 @@ Do these in order at the beginning of a session, before starting anything new.
    gh pr comment <N> --repo roope242/Twitch-Channel-Points-Miner-v2 --body "@coderabbitai review"
    ```
 
-   Then confirm a real review landed, rather than trusting the bot's chat reply:
+   Then confirm a real review landed, rather than trusting the bot's chat reply. **Do not use
+   `gh api .../pulls/<N>/reviews` for this — it stays empty even after a completed review.**
+   CodeRabbit does not submit a formal GitHub review; it **edits its existing summary comment in
+   place**. Watch `updated_at` on that comment:
 
    ```bash
-   gh api repos/roope242/Twitch-Channel-Points-Miner-v2/pulls/<N>/reviews \
-     --jq '.[] | "\(.user.login) \(.state) \(.submitted_at)"'
+   gh api repos/roope242/Twitch-Channel-Points-Miner-v2/issues/<N>/comments \
+     --jq '.[] | "id=\(.id) \(.user.login) created=\(.created_at) updated=\(.updated_at)"'
+   gh api repos/roope242/Twitch-Channel-Points-Miner-v2/issues/comments/<id> --jq .body
    ```
 
-   Compare the review's stated commit range against the branch head. CodeRabbit is incremental and
-   will not re-examine commits it has already seen, so the commits that fix its own findings are
-   exactly the ones most likely to go unreviewed. If the status comment still says the limit is
-   reached, stop and wait the stated number of minutes — re-posting burns quota and pushes the
-   window out.
+   A bumped `updated_at` on the bot's comment is the signal the run finished — polling for a *new*
+   comment misses it entirely. Inline findings, when there are any, appear separately in
+   `gh api .../pulls/<N>/comments`. Read the body's "Recent review info" block for the commit range
+   and compare it against the branch head: CodeRabbit is incremental and will not re-examine commits
+   it has already seen, so the commits that fix its own findings are exactly the ones most likely to
+   go unreviewed.
 
-   **Currently blocked:** PR #22. Its review never started; the quota was exhausted before it ran.
+   If the comment still says the limit is reached, stop — re-posting burns quota and pushes the
+   window out. **Record the absolute reset time before ending the session.** The notice only gives a
+   relative "next review available in N minutes", which is worthless read a day later; convert it to
+   a wall-clock timestamp and put it in the "In flight" table, so the next session knows whether the
+   window has actually cleared instead of guessing.
+
+   **Currently blocked:** nothing.
 
 3. **Pick up the task named in "Next up"** below.
 
@@ -55,8 +66,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `4b25b5f` | Clean, pushed. |
-| **PR #22** — issue #12, untrusted-text sinks | branch `fix/untrusted-text-sinks`, head `07e94d1` | Open. Code complete and verified. **Zero reviews** — CodeRabbit quota blocked it. Re-trigger first (step 2 above). |
+| `master` | `12074c8` | Clean, pushed. |
+| **PR #22** — issue #12, untrusted-text sinks | branch `fix/untrusted-text-sinks`, head `07e94d1` | Open. Code complete and verified. **Reviewed clean 2026-07-31** — "no actionable comments", range `34c1181..07e94d1`, which is the branch head. Ready to merge. |
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
 `fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`) can be
@@ -104,6 +115,10 @@ Deliberately *not* in #21: `getAllStreamersData()` at `:290` is uncalled but is 
 the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it orphans a
 working endpoint. Leave it until someone decides whether the multi-streamer chart view is wanted.
 
+**#23 is worth doing before #21, not after.** It is an XS config-only change that shrinks every
+subsequent review comment, so landing it first makes each later review cheaper to read. It is not a
+code fix, so it needs no PR.
+
 After #21, the order is **#10 → #13 → #16**, with **#7 and #11** going upstream rather than being
 fixed here. Reasoning for each is under "Remaining work" below.
 
@@ -124,7 +139,8 @@ user with the defaults.
 | ~~6~~ | No HTTP request timeouts | S–M | Med | High | **Closed** |
 | ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
 | ~~4~~ | `check_assets()` never updates existing assets | S–M | Med | Med | **Closed** — PR #20 |
-| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **PR #22 open** |
+| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **PR #22 open** — reviewed clean, ready to merge |
+| 23 | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | Open |
 | 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | Open — next |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
@@ -273,10 +289,25 @@ works from a checkout regardless of packaging.
 - **Documentation-only changes skip the PR.** `CLAUDE.md`, `ISSUES.md`, `README.md`, repo config —
   commit straight to `master`. There is nothing for a code reviewer to review and the ceremony just
   burns review quota.
-- **A chat reply is not a review.** Check `gh api .../pulls/N/reviews` and compare the stated commit
-  range against the branch head. The bot answers conversationally whether or not it reviewed.
-- **"Review limit reached" means stop.** Do not re-trigger while blocked. End the session and
-  re-trigger first thing the next one — see "Start here" step 2.
+- **Fork PR bodies must say the code was written by an AI agent.** The commits, the analysis and
+  the verification transcripts are the agent's work; `@roope242` directs, reviews and merges, and is
+  a co-author rather than the author. State that plainly in the description of every PR opened
+  against `roope242/master`.
+- **Upstream PR bodies must not raise it.** Some maintainers reject an AI-authored PR on sight,
+  fundamentally correct or not, and a fix that is worth their review should stand on its
+  reproduction and its evidence. So omit the subject upstream — *omit*, not misrepresent: never
+  write or imply that a human wrote the code, and answer honestly if a maintainer asks.
+  **Open question, decide before the first upstream PR:** every commit here carries
+  `Co-Authored-By: Claude …` and `Claude-Session: …` trailers, and `git cherry-pick` brings them
+  along, so a cherry-picked upstream branch announces it in the commit metadata regardless of what
+  the body says. Either strip the trailers while rebuilding the branch or accept that they show.
+- **A chat reply is not a review — and neither is an empty `pulls/N/reviews`.** CodeRabbit submits
+  no formal review at all; it edits its summary comment in place, so that endpoint stays empty
+  forever and proves nothing either way. Check the comment's `updated_at` and its "Recent review
+  info" commit range against the branch head — see "Start here" step 2 for the commands.
+- **"Review limit reached" means stop.** Do not re-trigger while blocked. Convert the notice's
+  relative "next review available in N minutes" into an absolute time, record it in "In flight",
+  end the session, and re-trigger first thing the next one — see "Start here" step 2.
 - **Iteration budget:** three internal review→fix cycles, six for verified external review
   findings. Cosmetic comments do not count against either. Past that, stop and report rather than
   patching again.
