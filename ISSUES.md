@@ -9,7 +9,7 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-07-31, end of the evening session (stopped on a CodeRabbit quota block).
+**Last updated:** 2026-08-01 — review moved off CodeRabbit to a local fresh-context agent.
 
 ---
 
@@ -24,67 +24,10 @@ Do these in order at the beginning of a session, before starting anything new.
    gh pr list --repo roope242/Twitch-Channel-Points-Miner-v2 --state open
    ```
 
-2. **Re-trigger any CodeRabbit review that was blocked by the quota.** When a session ends because
-   CodeRabbit hit its review limit, the next session's *first* action is to ask for the review
-   again — the rolling window has usually cleared overnight:
-
-   ```bash
-   gh pr comment <N> --repo roope242/Twitch-Channel-Points-Miner-v2 --body "@coderabbitai review"
-   ```
-
-   Then wait for the verdict with **`scripts/cr-wait.sh <N>`**, which is the only way to detect
-   one reliably. Trigger first, then run it — it ignores anything older than its own start time, so
-   a stale verdict from yesterday cannot be mistaken for today's.
-
-   ```bash
-   gh pr comment <N> --repo roope242/... --body "@coderabbitai review"
-   ./scripts/cr-wait.sh <N>       # exit 0 = verdict, 2 = quota-blocked, 3 = timed out
-   ```
-
-   Three separate things make hand-rolled polling fail, and all three were hit on 2026-07-31:
-
-   - **`gh api .../pulls/<N>/reviews` stays empty forever.** CodeRabbit submits no formal GitHub
-     review. Polling that endpoint never fires, even for a completed review.
-   - **It edits its existing comment in place** rather than posting a new one, so polling for a
-     *new* comment also never fires. `updated_at` on the existing comment is what moves.
-   - **The verdict prose is not durable.** "No actionable comments were generated" was present on
-     PR #22 at 15:05 and *gone* by 15:11, when the bot re-edited the comment after the merge and
-     left only the walkthrough. Match the structural `walkthrough_start` marker, not the sentence.
-
-   Because the bot rewrites its comments in place, the script reports the *current* state, not the
-   state at review time: on old PRs whose findings were later withdrawn or resolved it will say
-   CLEAN. That is correct for "is there anything outstanding", and wrong for "what did it say at the
-   time". Read the body if the history matters.
-
-   Compare the printed commit range against the branch head. CodeRabbit is incremental and will not
-   re-examine commits it has already seen, so the commits that fix its own findings are exactly the
-   ones most likely to go unreviewed.
-
-   On exit 2 the script prints the **absolute** reset time — record that in the "In flight" table
-   before ending the session. The notice itself only gives a relative "next review available in N
-   minutes", which is worthless read a day later. Do not re-trigger before it; re-posting burns
-   quota and pushes the window out.
-
-   **Currently blocked: PR #25, until 2026-07-31 21:46:37 UTC.** `abcc030` (the fix for the one
-   finding) is pushed and **unreviewed** — the review that would cover it never started. Re-trigger
-   after that time, wait with `cr-wait.sh 25`, then merge if clean.
-
-   That block is also the sharpest example so far of why a chat reply is not a review. The
-   *newest* CodeRabbit comment on #25 reads:
-
-   > `@roope242` The selected-streamer polling issue is addressed in `abcc030`. […] ✅ Action
-   > performed — Review finished.
-
-   and it is worthless. The real state is in the **older summary comment, edited in place**:
-   "you've reached your PR review limit, so we couldn't start this review." Reading only the newest
-   comment — the obvious thing to do — would have merged an unreviewed commit on the strength of
-   the bot agreeing with the commit message. `cr-wait.sh` scans *every* bot comment, newest first,
-   which is why it caught it; keep that property if the script is ever changed.
-
-   `cr-wait.sh` is **proven live** as of 2026-07-31: it caught PR #25's review 195s after the
-   trigger and reported FINDINGS with the correct count, having previously matched the archived
-   state of PRs 17, 20, 22 and 25. A backgrounded run is not killed by the 10-minute tool timeout,
-   so a long wait is safe.
+2. **Nothing to re-trigger.** Reviews no longer run on a third-party service, so a session can no
+   longer start blocked. Since 2026-08-01 the reviewer is a fresh-context agent spawned locally —
+   see "Standing workflow" below. If a PR is open with unreviewed commits, spawn `pr-reviewer` on
+   it; there is no queue and no quota window to wait for.
 
 3. **Pick up the task named in "Next up"** below.
 
@@ -94,11 +37,31 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `7ba35c7` | Clean, pushed. |
-| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `abcc030` | Open. Code complete, 19/19 jsdom assertions. The one review finding is **fixed** in `abcc030`, which is **quota-blocked and unreviewed until 21:46:37 UTC**. Re-trigger, `cr-wait.sh 25`, merge if clean. |
+| `master` | `b713b72` + this commit | Clean, pushed. |
+| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `7ce88e4` | Open, **reviewed, ready to merge.** 20/20 jsdom assertions. `gh pr merge 25 --merge` — the session's own merge attempt was refused by the permission classifier, so a human runs it. |
+| **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-### PR #25's finding — fixed in `abcc030`, awaiting review
+### PR #25's two review rounds, and what the second caught
+
+Worth keeping because the two rounds came from different reviewers and the second one caught the
+first one's suggestion misfiring.
+
+**Round 2 (`7ce88e4`, fresh-context agent) — the guard below was too broad.** Dropping the stored
+selection whenever it was absent from the list also fired when the list was legitimately empty:
+`Settings.analytics_path` is cwd-relative and always `mkdir`'d
+(`TwitchChannelPointsMiner.py:134-137`), and `streamers_available()` lists `.json` files in it, so
+a first start from another working directory — a systemd unit, a Docker mount — serves a 200 with
+`[]`. The user's chosen streamer was then erased permanently. `7ce88e4` adds
+`streamersList.length > 0 &&`. Observed in jsdom: the value survives an empty response, and the
+assertion fails on `abcc030` exactly. Harness now 20/20.
+
+The lesson generalises past this PR: **a reviewer's suggested fix is a claim like any other
+finding.** CodeRabbit proposed the guard, it was verified against the *missing-streamer* case only,
+and the empty-list case was never asked about. Check the suggestion's own edges, not just the bug
+it names.
+
+### Round 1's finding — fixed in `abcc030`
 
 `script.js:331`, in the `getStreamers` success path. `selectedStreamer` was restored from
 `localStorage` without checking it still exists. If that streamer is gone, `./json/<name>` returns
@@ -153,7 +116,8 @@ to a real Discord webhook.
 
 ## Next up
 
-**Land PR #25 (issue #21), then start #10.**
+**Merge PR #25 (`gh pr merge 25 --merge`), then start #10.** It is reviewed and green; the only
+reason it is still open is that the session's merge call was refused by the permission classifier.
 
 #23 and #21 are both done as of 2026-07-31 — #23 committed straight to `master` as `f257f02`,
 #21 open as PR #25. Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
@@ -372,10 +336,42 @@ works from a checkout regardless of packaging.
 
 ## Standing workflow
 
-- **Every code fix goes through a PR.** Branch off `master`, commit, push, `gh pr create` against
-  `roope242/master`. Wait for CodeRabbit, act on the substantive findings, then merge without
-  waiting for sign-off. Judgment still applies — CodeRabbit's findings are claims to verify against
-  the code, and pushing back in the thread is the right response when it is wrong.
+- **Every code fix goes through a PR, and the review is a fresh-context agent.** Branch off
+  `master`, commit, push, `gh pr create` against `roope242/master`. Then spawn the `pr-reviewer`
+  agent (`.claude/agents/pr-reviewer.md`, flagship model, read-only) on the pushed head. Verify its
+  findings against the code — they are claims, like any reviewer's — fix what is real, re-review,
+  then merge without waiting for sign-off.
+
+  **Tell it the base and head, and nothing else.** Not why the change is correct, not what was
+  already verified, not what the last review said. The empty context is the entire mechanism; a
+  reviewer primed with the author's reasoning re-derives the author's blind spot. The agent
+  definition says the task prompt is not evidence — do not undercut that from the prompt side.
+
+  Adding or editing `.claude/agents/*.md` does **not** register it in the running session:
+  `subagent_type: pr-reviewer` fails with "Agent type not found" until Claude Code reloads. Until
+  then, spawn the generic agent and point it at the file as its operating instructions — same
+  model, same result.
+
+- **Why this replaced CodeRabbit (2026-08-01).** It runs on the Claude subscription instead of a
+  third-party quota, so a session can no longer be blocked mid-flight — which is exactly what
+  stopped the 2026-07-31 session with a fix pushed and unreviewed. It also re-reads the *whole*
+  diff every run, where CodeRabbit is incremental and skips commits it has already seen; that gap
+  is what left `abcc030` unreviewed while the bot cheerfully affirmed it by name.
+
+  **Calibration, measured on the same diff.** PR #25 at `abcc030`: CodeRabbit's CLI returned
+  **0 findings**; the fresh-context agent returned **3** — one warning and two info — and all three
+  were reproduced in jsdom rather than argued. One was a genuine regression the CodeRabbit PR bot
+  had asked for two rounds earlier: its own suggested guard wiped the user's saved streamer
+  whenever `/streamers` legitimately returned `[]`. The other two were pre-existing and correctly
+  labelled as such; they became #26. One sample, not a controlled comparison — but the direction
+  was not close.
+
+- **CodeRabbit is off by default and kept for the big cases.** `.coderabbit.yaml` sets
+  `reviews.auto_review.enabled: false` (verified against the published schema: there is no
+  `reviews.enabled` key, and `description_keyword` stays empty so no PR body can silently
+  re-enable it). The GitHub App is still installed, so `@coderabbitai review` works on demand —
+  use it as a third opinion on a PR large enough to be worth the cost, not as the default gate.
+  `scripts/cr-wait.sh <N>` is still the only reliable way to detect its verdict when you do.
 - **Documentation-only changes skip the PR.** `CLAUDE.md`, `ISSUES.md`, `README.md`, repo config —
   commit straight to `master`. There is nothing for a code reviewer to review and the ceremony just
   burns review quota.
@@ -391,13 +387,14 @@ works from a checkout regardless of packaging.
   `git cherry-pick` brings them along, so an upstream branch shows them in its commit metadata
   whatever the body says. **Decided 2026-07-31: leave them.** Do not rewrite commits to strip
   them — the rule is to not *raise* the subject in the description, not to hide it.
-- **A chat reply is not a review — and neither is an empty `pulls/N/reviews`.** CodeRabbit submits
-  no formal review at all; it edits its summary comment in place, so that endpoint stays empty
-  forever and proves nothing either way. Use `scripts/cr-wait.sh <N>` rather than improvising a
-  poll — see "Start here" step 2 for the three ways hand-rolled polling silently fails.
-- **"Review limit reached" means stop.** Do not re-trigger while blocked. Convert the notice's
-  relative "next review available in N minutes" into an absolute time, record it in "In flight",
-  end the session, and re-trigger first thing the next one — see "Start here" step 2.
+- **An approval is a claim too, and it is the one you want to believe.** This survived the move off
+  CodeRabbit unchanged — only the failure mode is new. A bot that is merely talkative used to fake
+  a verdict (PR #25: "Review finished", while no review had started); an agent that is merely
+  agreeable can do the same. The defence is the same in both cases: a CLEAN verdict counts only if
+  the report says *what was actually checked*, specifically enough to be false. "Verified the JS"
+  is not a review. "Ran the jsdom harness, 19/19, ready confirmed to fire" is.
+
+  If the report cannot show its teeth, treat it as no review and spawn again.
 - **Iteration budget:** three internal review→fix cycles, six for verified external review
   findings. Cosmetic comments do not count against either. Past that, stop and report rather than
   patching again.

@@ -22,8 +22,19 @@ reviews:
   # were real defects, one of which made the fix inert. Trimming presentation
   # must never turn into trimming findings.
   profile: chill
+
+  # Automatic reviews off as of 2026-08-01. Review is now a fresh-context agent
+  # spawned locally -- see `.claude/agents/pr-reviewer.md` and ISSUES.md
+  # "Standing workflow". That runs on the Claude subscription rather than a
+  # third-party quota, re-reads the whole diff every time instead of skipping
+  # commits it has already seen, and cannot be blocked mid-session.
+  #
+  # This does NOT uninstall the GitHub App: `@coderabbitai review` still works
+  # on demand, and that is the intended use -- a third opinion on a PR large
+  # enough to be worth one. `description_keyword` is left at its default (empty)
+  # so nothing in a PR body re-enables it silently.
   auto_review:
-    enabled: true
+    enabled: false
     drafts: false
 
   # Do not rewrite the PR description. Bodies here are written deliberately --

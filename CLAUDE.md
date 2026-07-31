@@ -4,19 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Starting a session? Read `ISSUES.md` first.** It is the handoff document: what is in flight and
 at which commit, what to do next and why, what every closed issue taught, and the PR/review
-workflow. Its "Start here" section lists the first actions of a session — including re-triggering
-any CodeRabbit review that a quota block stopped the day before. Update its "Start here" and
-"In flight" sections before a session ends.
+workflow. Update its "Start here" and "In flight" sections before a session ends.
 
-`scripts/cr-wait.sh <pr>` is the only reliable way to detect a CodeRabbit verdict: it submits no
-formal review, so `gh api .../pulls/N/reviews` is always empty, and it edits comments in place —
-deleting text as well as adding it. Do not improvise a poll; see `ISSUES.md` "Start here".
-Run it **unpiped** — `| tail` masks the exit code that is its whole API (0 verdict, 2 quota, 3
-timeout) — and note it lives on `master`, so from a branch that predates it use
-`git show master:scripts/cr-wait.sh > <scratch>/cr-wait.sh`.
-Its verdict outranks any single comment: on PR #25 the *newest* bot comment said "Review finished"
-and affirmed the fix by name, while the "couldn't start this review" quota warning sat in the
-*older* summary comment, edited in place.
+**Code review is a fresh-context agent, not a service.** After pushing a branch and opening the
+PR, spawn the `pr-reviewer` agent (`.claude/agents/pr-reviewer.md`) on the pushed head. It derives
+the diff itself, reads this file for the project's traps, and must give every finding a concrete
+failure scenario. Its findings are claims — verify each against the code before fixing, exactly as
+with any reviewer. Details and rationale: `ISSUES.md` "Standing workflow".
+
+The empty context is the point, not the model tier. Handing the reviewer the implementing
+session's reasoning re-creates the blind spot that produced the bug, so tell it the base and head
+and nothing about why the change is right.
+
+CodeRabbit's automatic PR reviews are **off** (`.coderabbit.yaml`, 2026-08-01). The GitHub App is
+still installed and `@coderabbitai review` still works on demand — reserve it for a PR big enough
+that a third opinion earns its cost. `scripts/cr-wait.sh` exists for that case and stays accurate:
+CodeRabbit submits no formal review, so `gh api .../pulls/N/reviews` is always empty, and it edits
+comments in place. Run it **unpiped** — `| tail` masks the exit code that is its whole API (0
+verdict, 2 quota, 3 timeout). Its verdict outranks any single comment: on PR #25 the *newest* bot
+comment said "Review finished" and affirmed the fix by name, while the "couldn't start this
+review" quota warning sat in the *older* summary comment, edited in place.
 
 ## What this is
 
@@ -246,9 +253,9 @@ or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
 ## Sending fixes upstream
 
 `origin` is the `roope242` fork; its parent is `rdavydov/...`, whose parent is
-`Tkd-Alex/...`. `CLAUDE.md`, `ISSUES.md` (fork-local triage and fix order) and
-`.coderabbit.yaml` exist only on the fork — **never open an upstream PR from `master`**, it
-would carry them along. Branch off `upstream/master`, cherry-pick the fix
+`Tkd-Alex/...`. `CLAUDE.md`, `ISSUES.md` (fork-local triage and fix order), `.coderabbit.yaml`,
+`.claude/` and `scripts/cr-wait.sh` exist only on the fork — **never open an upstream PR from
+`master`**, it would carry them along. Branch off `upstream/master`, cherry-pick the fix
 commits, and open it cross-fork:
 
 ```bash
