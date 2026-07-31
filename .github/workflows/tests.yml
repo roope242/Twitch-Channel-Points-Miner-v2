@@ -10,6 +10,7 @@ jobs:
   python:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -29,11 +30,15 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run pytest
-        run: pytest tests/ -v
+        # `python -m pytest`, not the `pytest` console script: the module form puts
+        # the repo root on sys.path, and the package is not pip-installed here. The
+        # script form fails at collection with ModuleNotFoundError.
+        run: python -m pytest tests/ -v
 
   javascript:
     name: JS (jsdom)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout source
         uses: actions/checkout@v4

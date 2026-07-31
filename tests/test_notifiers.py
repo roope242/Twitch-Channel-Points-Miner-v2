@@ -42,12 +42,19 @@ def test_webhook_get_percent_encodes_message_and_event(monkeypatch):
     assert parsed.netloc == "example.test"
     assert parsed.path == "/hook"
 
-    # The whole point of safe="": the injected "&event_name=" must decode back
-    # to a single literal value, not create a second query parameter.
+    # The injected "&event_name=" must decode back to a single literal value,
+    # not create a second query parameter.
     query = parse_qs(parsed.query)
     assert query["event_name"] == ["CHAT_MENTION"]
     assert query["message"] == [MALICIOUS_MESSAGE]
     assert "injected" not in query
+
+    # ...and specifically safe="": quote()'s default safe="/" passes "/" through
+    # untouched, and parse_qs decodes %2F back to "/" either way, so the
+    # assertions above hold under both. Only the raw query string tells them
+    # apart. Without this, dropping safe="" would leave the suite green.
+    assert "%2F" in parsed.query
+    assert "/" not in parsed.query
 
 
 def test_webhook_post_uses_post_method(monkeypatch):
