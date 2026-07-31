@@ -131,23 +131,31 @@ $(document).ready(function () {
     // Function to get the full log content
     function getLog() {
         if (isLogCheckboxChecked) {
-            $.get(`/log?lastIndex=${lastReceivedLogIndex}`, function (data) {
-                // Process and display the new log entries received.
-                // Append a text node, not a string: jQuery parses a string argument
-                // as HTML, and the log carries raw Twitch text (stream titles, GQL
-                // response bodies at DEBUG) that must never be interpreted as markup.
-                $("#log-content").append(document.createTextNode(data));
-                // Scroll to the bottom of the log content
-                $("#log-content").scrollTop($("#log-content")[0].scrollHeight);
+            $.get(`/log?lastIndex=${lastReceivedLogIndex}`)
+                .done(function (data) {
+                    // Process and display the new log entries received.
+                    // Append a text node, not a string: jQuery parses a string argument
+                    // as HTML, and the log carries raw Twitch text (stream titles, GQL
+                    // response bodies at DEBUG) that must never be interpreted as markup.
+                    $("#log-content").append(document.createTextNode(data));
+                    // Scroll to the bottom of the log content
+                    $("#log-content").scrollTop($("#log-content")[0].scrollHeight);
 
-                // Update the last received log index
-                lastReceivedLogIndex += data.length;
-
-                if (autoUpdateLog) {
-                    // Call getLog() again after a certain interval (e.g., 1 second)
-                    setTimeout(getLog, 1000);
-                }
-            });
+                    // Update the last received log index
+                    lastReceivedLogIndex += data.length;
+                })
+                .fail(function () {
+                    console.error('Failed to fetch the log; retrying.');
+                })
+                .always(function () {
+                    // Re-schedule from always(), not from the success path: a single
+                    // failed request would otherwise stop the log updating for good,
+                    // until the user toggled the checkbox by hand.
+                    if (autoUpdateLog) {
+                        // Call getLog() again after a certain interval (e.g., 1 second)
+                        setTimeout(getLog, 1000);
+                    }
+                });
         }
     }
 
@@ -275,18 +283,28 @@ function getStreamerData(streamer) {
         $.getJSON(`./json/${streamer}`, {
             startDate: formatDate(startDate),
             endDate: formatDate(endDate)
-        }, function (response) {
-            chart.updateSeries([{
-                name: streamer.replace(".json", ""),
-                data: response["series"]
-            }], true)
-            clearAnnotations();
-            annotations = response["annotations"];
-            updateAnnotations();
-            setTimeout(function () {
-                getStreamerData(streamer);
-            }, 300000); // 5 minutes
-        });
+        })
+            .done(function (response) {
+                chart.updateSeries([{
+                    name: streamer.replace(".json", ""),
+                    data: response["series"]
+                }], true)
+                clearAnnotations();
+                annotations = response["annotations"];
+                updateAnnotations();
+            })
+            .fail(function () {
+                console.error(`Failed to fetch data for ${streamer}; retrying.`);
+            })
+            .always(function () {
+                // Same reason as getLog(): re-schedule regardless of outcome, or one
+                // failed request ends the refresh permanently. The currentStreamer
+                // guard at the top of this function drops timers for a streamer the
+                // user has since navigated away from.
+                setTimeout(function () {
+                    getStreamerData(streamer);
+                }, 300000); // 5 minutes
+            });
     }
 }
 
@@ -302,30 +320,48 @@ function getAllStreamersData() {
 }
 
 function getStreamers() {
-    $.getJSON('streamers', function (response) {
-        streamersList = response;
-        sortStreamers();
+    $.getJSON('streamers')
+        .done(function (response) {
+            streamersList = response;
+            sortStreamers();
 
-        // Restore the selected streamer from localStorage on page load
-        var selectedStreamer = localStorage.getItem("selectedStreamer");
+            // Restore the selected streamer from localStorage on page load
+            var selectedStreamer = localStorage.getItem("selectedStreamer");
 
-        if (selectedStreamer) {
-            currentStreamer = selectedStreamer;
-        } else {
-            // If no selected streamer is found, default to the first streamer in the list
-            currentStreamer = streamersList.length > 0 ? streamersList[0].name : null;
-        }
+            // A streamer that has since been removed would otherwise be polled every
+            // five minutes forever, now that the refresh re-schedules on failure too.
+            // An empty list is not evidence the streamer is gone — `analytics_path` is
+            // cwd-relative, so starting from another directory serves a legitimate [].
+            if (selectedStreamer && streamersList.length > 0
+                && !streamersList.some(streamer => streamer.name === selectedStreamer)) {
+                localStorage.removeItem("selectedStreamer");
+                selectedStreamer = null;
+            }
 
-        // Ensure the selected streamer is still active and scrolled into view
-        renderStreamers();
-    });
+            if (selectedStreamer) {
+                currentStreamer = selectedStreamer;
+            } else {
+                // If no selected streamer is found, default to the first streamer in the list
+                currentStreamer = streamersList.length > 0 ? streamersList[0].name : null;
+            }
+
+            // Ensure the selected streamer is still active and scrolled into view
+            renderStreamers();
+        })
+        .fail(function () {
+            // Without this the list is simply empty and nothing says why.
+            console.error('Failed to fetch the streamer list.');
+            $("#streamers-list").empty().append(
+                $("<li>").text("Failed to load streamers.")
+            );
+        });
 }
 
 function renderStreamers() {
     $("#streamers-list").empty();
     var promised = new Promise((resolve, reject) => {
         streamersList.forEach((streamer, index, array) => {
-            displayname = streamer.name.replace(".json", "");
+            var displayname = streamer.name.replace(".json", "");
             if (sortField == 'points') displayname = "<font size='-2'>" + streamer['points'] + "</font>&nbsp;" + displayname;
             else if (sortField == 'last_activity') displayname = "<font size='-2'>" + formatDate(streamer['last_activity']) + "</font>&nbsp;" + displayname;
             var isActive = currentStreamer === streamer.name;
@@ -387,13 +423,9 @@ function clearAnnotations() {
     chart.clearAnnotations();
 }
 
-// Toggle
-$('#annotations').click(() => {
-    updateAnnotations();
-});
-$('#dark-mode').click(() => {
-    toggleDarkMode();
-});
+// #annotations and #dark-mode are bound inside $(document).ready, where the handlers
+// also persist the new state to localStorage. A second binding here ran
+// updateAnnotations()/toggleDarkMode() a second time on every click.
 
 $('.dropdown').click(() => {
     $('.dropdown').toggleClass('is-active');
