@@ -37,9 +37,11 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `b713b72` + this commit | Clean, pushed. |
-| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `7ce88e4` | Open, **reviewed, ready to merge.** 20/20 jsdom assertions. `gh pr merge 25 --merge` — the session's own merge attempt was refused by the permission classifier, so a human runs it. |
+| `master` | `51591fc` | Clean, pushed. |
+| **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
+
+Nothing is in flight. **#10 is next** — see "Next up".
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 ### PR #25's two review rounds, and what the second caught
@@ -116,11 +118,9 @@ to a real Discord webhook.
 
 ## Next up
 
-**Merge PR #25 (`gh pr merge 25 --merge`), then start #10.** It is reviewed and green; the only
-reason it is still open is that the session's merge call was refused by the permission classifier.
+**Start #10 (PubSub reconnection).** #21 landed as PR #25 on 2026-08-01, so nothing is open.
 
-#23 and #21 are both done as of 2026-07-31 — #23 committed straight to `master` as `f257f02`,
-#21 open as PR #25. Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
+Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
 client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
 orphans a working endpoint. Leave it until someone decides whether the multi-streamer chart view is
 wanted.
@@ -151,7 +151,8 @@ user with the defaults.
 | ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
 | ~~4~~ | `check_assets()` never updates existing assets | S–M | Med | Med | **Closed** — PR #20 |
 | ~~12~~ | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **Closed** — PR #22, `74eb9a8` |
-| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | **PR #25 open** |
+| ~~21~~ | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | **Closed** — PR #25, `51591fc` |
+| 26 | Polling chains accumulate; log chains duplicate | S | Low | Low–Med | Open — unscheduled |
 | ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
@@ -207,6 +208,19 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #21 — dashboard JS resilience (PR #25, `51591fc`)
+
+The re-schedule moved into `.always()` for all three polling chains, duplicate
+`#annotations`/`#dark-mode` bindings removed, `displayname` de-globalised, SRI added to four CDN
+includes. Verified observationally, not by reading: a simulated outage kills all four 5-minute
+timers on `master` and none on the branch, and the duplicate handlers ran twice before and once
+after.
+
+Two rounds, two reviewers, and the second caught the first's suggestion misfiring — the full story
+is under "PR #25's two review rounds" above. The transferable part: **a reviewer's proposed fix is
+a claim with edges its finding never mentioned.** Verify the suggestion against the cases it did
+*not* name.
 
 ### #23 — CodeRabbit output was mostly packaging (`f257f02`)
 
