@@ -42,8 +42,9 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 
-Nothing is in flight. **#10 is next** — see "Next up".
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
+
+Nothing is in flight. **#10 is next** — see "Next up".
 
 ### PR #25's two review rounds, and what the second caught
 
