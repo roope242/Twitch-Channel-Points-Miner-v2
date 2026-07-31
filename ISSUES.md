@@ -32,29 +32,38 @@ Do these in order at the beginning of a session, before starting anything new.
    gh pr comment <N> --repo roope242/Twitch-Channel-Points-Miner-v2 --body "@coderabbitai review"
    ```
 
-   Then confirm a real review landed, rather than trusting the bot's chat reply. **Do not use
-   `gh api .../pulls/<N>/reviews` for this — it stays empty even after a completed review.**
-   CodeRabbit does not submit a formal GitHub review; it **edits its existing summary comment in
-   place**. Watch `updated_at` on that comment:
+   Then wait for the verdict with **`scripts/cr-wait.sh <N>`**, which is the only way to detect
+   one reliably. Trigger first, then run it — it ignores anything older than its own start time, so
+   a stale verdict from yesterday cannot be mistaken for today's.
 
    ```bash
-   gh api repos/roope242/Twitch-Channel-Points-Miner-v2/issues/<N>/comments \
-     --jq '.[] | "id=\(.id) \(.user.login) created=\(.created_at) updated=\(.updated_at)"'
-   gh api repos/roope242/Twitch-Channel-Points-Miner-v2/issues/comments/<id> --jq .body
+   gh pr comment <N> --repo roope242/... --body "@coderabbitai review"
+   ./scripts/cr-wait.sh <N>       # exit 0 = verdict, 2 = quota-blocked, 3 = timed out
    ```
 
-   A bumped `updated_at` on the bot's comment is the signal the run finished — polling for a *new*
-   comment misses it entirely. Inline findings, when there are any, appear separately in
-   `gh api .../pulls/<N>/comments`. Read the body's "Recent review info" block for the commit range
-   and compare it against the branch head: CodeRabbit is incremental and will not re-examine commits
-   it has already seen, so the commits that fix its own findings are exactly the ones most likely to
-   go unreviewed.
+   Three separate things make hand-rolled polling fail, and all three were hit on 2026-07-31:
 
-   If the comment still says the limit is reached, stop — re-posting burns quota and pushes the
-   window out. **Record the absolute reset time before ending the session.** The notice only gives a
-   relative "next review available in N minutes", which is worthless read a day later; convert it to
-   a wall-clock timestamp and put it in the "In flight" table, so the next session knows whether the
-   window has actually cleared instead of guessing.
+   - **`gh api .../pulls/<N>/reviews` stays empty forever.** CodeRabbit submits no formal GitHub
+     review. Polling that endpoint never fires, even for a completed review.
+   - **It edits its existing comment in place** rather than posting a new one, so polling for a
+     *new* comment also never fires. `updated_at` on the existing comment is what moves.
+   - **The verdict prose is not durable.** "No actionable comments were generated" was present on
+     PR #22 at 15:05 and *gone* by 15:11, when the bot re-edited the comment after the merge and
+     left only the walkthrough. Match the structural `walkthrough_start` marker, not the sentence.
+
+   Because the bot rewrites its comments in place, the script reports the *current* state, not the
+   state at review time: on old PRs whose findings were later withdrawn or resolved it will say
+   CLEAN. That is correct for "is there anything outstanding", and wrong for "what did it say at the
+   time". Read the body if the history matters.
+
+   Compare the printed commit range against the branch head. CodeRabbit is incremental and will not
+   re-examine commits it has already seen, so the commits that fix its own findings are exactly the
+   ones most likely to go unreviewed.
+
+   On exit 2 the script prints the **absolute** reset time — record that in the "In flight" table
+   before ending the session. The notice itself only gives a relative "next review available in N
+   minutes", which is worthless read a day later. Do not re-trigger before it; re-posting burns
+   quota and pushes the window out.
 
    **Currently blocked:** nothing.
 
@@ -317,8 +326,8 @@ works from a checkout regardless of packaging.
   them — the rule is to not *raise* the subject in the description, not to hide it.
 - **A chat reply is not a review — and neither is an empty `pulls/N/reviews`.** CodeRabbit submits
   no formal review at all; it edits its summary comment in place, so that endpoint stays empty
-  forever and proves nothing either way. Check the comment's `updated_at` and its "Recent review
-  info" commit range against the branch head — see "Start here" step 2 for the commands.
+  forever and proves nothing either way. Use `scripts/cr-wait.sh <N>` rather than improvising a
+  poll — see "Start here" step 2 for the three ways hand-rolled polling silently fails.
 - **"Review limit reached" means stop.** Do not re-trigger while blocked. Convert the notice's
   relative "next review available in N minutes" into an absolute time, record it in "In flight",
   end the session, and re-trigger first thing the next one — see "Start here" step 2.
