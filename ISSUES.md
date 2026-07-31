@@ -9,7 +9,7 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-07-31, end of session.
+**Last updated:** 2026-07-31, end of the evening session (stopped on a CodeRabbit quota block).
 
 ---
 
@@ -65,11 +65,21 @@ Do these in order at the beginning of a session, before starting anything new.
    minutes", which is worthless read a day later. Do not re-trigger before it; re-posting burns
    quota and pushes the window out.
 
-   **Currently blocked:** nothing. PR #25 was reviewed at 16:04 UTC on 2026-07-31 and a further
-   `@coderabbitai review` was posted at the end of that session, deliberately, so the quota spend
-   falls in yesterday's window rather than at the start of today's. Check what that request
-   returned before assuming a fresh pass is pending — on an unchanged branch CodeRabbit answers
-   "no new changes to review", since it never re-examines commits it has already seen.
+   **Currently blocked: PR #25, until 2026-07-31 21:46:37 UTC.** `abcc030` (the fix for the one
+   finding) is pushed and **unreviewed** — the review that would cover it never started. Re-trigger
+   after that time, wait with `cr-wait.sh 25`, then merge if clean.
+
+   That block is also the sharpest example so far of why a chat reply is not a review. The
+   *newest* CodeRabbit comment on #25 reads:
+
+   > `@roope242` The selected-streamer polling issue is addressed in `abcc030`. […] ✅ Action
+   > performed — Review finished.
+
+   and it is worthless. The real state is in the **older summary comment, edited in place**:
+   "you've reached your PR review limit, so we couldn't start this review." Reading only the newest
+   comment — the obvious thing to do — would have merged an unreviewed commit on the strength of
+   the bot agreeing with the commit message. `cr-wait.sh` scans *every* bot comment, newest first,
+   which is why it caught it; keep that property if the script is ever changed.
 
    `cr-wait.sh` is **proven live** as of 2026-07-31: it caught PR #25's review 195s after the
    trigger and reported FINDINGS with the correct count, having previously matched the archived
@@ -85,12 +95,12 @@ Do these in order at the beginning of a session, before starting anything new.
 | What | Where | State |
 |---|---|---|
 | `master` | `7ba35c7` | Clean, pushed. |
-| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 of them failing on `master`. **Reviewed 2026-07-31 16:04 UTC: 1 actionable finding, unaddressed.** See below — fix it, then merge. |
+| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `abcc030` | Open. Code complete, 19/19 jsdom assertions. The one review finding is **fixed** in `abcc030`, which is **quota-blocked and unreviewed until 21:46:37 UTC**. Re-trigger, `cr-wait.sh 25`, merge if clean. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-### PR #25's open finding — verified valid, fix it first thing
+### PR #25's finding — fixed in `abcc030`, awaiting review
 
-`script.js:331`, in the `getStreamers` success path. `selectedStreamer` is restored from
+`script.js:331`, in the `getStreamers` success path. `selectedStreamer` was restored from
 `localStorage` without checking it still exists. If that streamer is gone, `./json/<name>` returns
 404 forever.
 
@@ -98,21 +108,21 @@ Do these in order at the beginning of a session, before starting anything new.
 than filing separately.** Before the change a 404 killed the refresh loop, so the stale entry cost
 one failed request. After it, `.always()` re-schedules unconditionally — so a permanently missing
 streamer is now polled every five minutes for the life of the page. The resilience fix is correct;
-this is the one case where "retry forever" is the wrong answer, and it needs the guard CodeRabbit
-proposed:
+this is the one case where "retry forever" is the wrong answer. `abcc030` clears the stale value
+and falls through to the existing first-streamer default, rather than duplicating that default in
+a second branch as CodeRabbit's snippet did — `renderStreamers` keys off
+`localStorage.getItem("selectedStreamer") === null` at `script.js:365`, so removing the entry is
+what keeps the list highlight consistent with `currentStreamer`.
 
-```js
-if (streamersList.some(streamer => streamer.name === selectedStreamer)) {
-    currentStreamer = selectedStreamer;
-} else {
-    localStorage.removeItem("selectedStreamer");
-    currentStreamer = streamersList.length > 0 ? streamersList[0].name : null;
-}
-```
+Verified in jsdom, four new assertions (harness now 19 checks): with `selectedStreamer=ghost.json`
+stored and a list holding only `real.json`, no request is issued for the ghost, the stored value
+becomes `real.json`, `currentStreamer` falls back, and firing the one pending 300000ms timer polls
+`./json/real.json`. All four fail on `c53274a`, pass on `abcc030`. `master` scores 8/19.
 
-The jsdom harness in the scratch dir covers this shape already — add an assertion that a
-`localStorage` entry naming an absent streamer does not schedule a 300000ms timer, so the fix is
-verified rather than assumed. That is one internal iteration spent of the three.
+**Harness trap found while writing them:** `renderStreamers` calls `changeStreamer` from a Promise
+`.then`, so its request lands in whatever test case happens to be running at the next `await` —
+test 6's stray request was being counted against test 7. Await a tick after any `renderStreamers()`
+call. One internal iteration spent of the three.
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
 `fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`,
