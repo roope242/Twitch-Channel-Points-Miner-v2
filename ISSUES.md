@@ -65,18 +65,16 @@ Do these in order at the beginning of a session, before starting anything new.
    minutes", which is worthless read a day later. Do not re-trigger before it; re-posting burns
    quota and pushes the window out.
 
-   **Currently blocked:** PR #25. Quota exhausted; the review never started. The window reopened
-   **2026-07-31 16:00:30 UTC** — long past by the time anyone reads this, so trigger it immediately:
+   **Currently blocked:** nothing. PR #25 was reviewed at 16:04 UTC on 2026-07-31 and a further
+   `@coderabbitai review` was posted at the end of that session, deliberately, so the quota spend
+   falls in yesterday's window rather than at the start of today's. Check what that request
+   returned before assuming a fresh pass is pending — on an unchanged branch CodeRabbit answers
+   "no new changes to review", since it never re-examines commits it has already seen.
 
-   ```bash
-   gh pr comment 25 --repo roope242/Twitch-Channel-Points-Miner-v2 --body "@coderabbitai review"
-   ./scripts/cr-wait.sh 25
-   ```
-
-   That run is also the **first live test of `cr-wait.sh`**. It has been verified against the
-   archived state of PRs 17, 20, 22 and 25, and correctly reported FINDINGS / CLEAN / CLEAN /
-   BLOCKED — but it has never yet watched a review land in real time. Treat a PENDING that never
-   resolves as a bug in the script, not as a slow review, and check by hand before believing it.
+   `cr-wait.sh` is **proven live** as of 2026-07-31: it caught PR #25's review 195s after the
+   trigger and reported FINDINGS with the correct count, having previously matched the archived
+   state of PRs 17, 20, 22 and 25. A backgrounded run is not killed by the 10-minute tool timeout,
+   so a long wait is safe.
 
 3. **Pick up the task named in "Next up"** below.
 
@@ -87,8 +85,34 @@ Do these in order at the beginning of a session, before starting anything new.
 | What | Where | State |
 |---|---|---|
 | `master` | `7ba35c7` | Clean, pushed. |
-| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 of them failing on `master`. **Zero reviews — quota blocked, reset 2026-07-31 16:00:30 UTC.** Re-trigger first (step 2 above). |
+| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 of them failing on `master`. **Reviewed 2026-07-31 16:04 UTC: 1 actionable finding, unaddressed.** See below — fix it, then merge. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
+
+### PR #25's open finding — verified valid, fix it first thing
+
+`script.js:331`, in the `getStreamers` success path. `selectedStreamer` is restored from
+`localStorage` without checking it still exists. If that streamer is gone, `./json/<name>` returns
+404 forever.
+
+**This is pre-existing code that PR #25 makes worse, which is why it is worth fixing here rather
+than filing separately.** Before the change a 404 killed the refresh loop, so the stale entry cost
+one failed request. After it, `.always()` re-schedules unconditionally — so a permanently missing
+streamer is now polled every five minutes for the life of the page. The resilience fix is correct;
+this is the one case where "retry forever" is the wrong answer, and it needs the guard CodeRabbit
+proposed:
+
+```js
+if (streamersList.some(streamer => streamer.name === selectedStreamer)) {
+    currentStreamer = selectedStreamer;
+} else {
+    localStorage.removeItem("selectedStreamer");
+    currentStreamer = streamersList.length > 0 ? streamersList[0].name : null;
+}
+```
+
+The jsdom harness in the scratch dir covers this shape already — add an assertion that a
+`localStorage` entry naming an absent streamer does not schedule a 300000ms timer, so the fix is
+verified rather than assumed. That is one internal iteration spent of the three.
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
 `fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`,
@@ -216,10 +240,16 @@ Presentation knobs off, findings untouched. Every key was validated against the 
 before committing — `"off"` is quoted deliberately, since bare `off` is a YAML boolean and would
 have been silently rejected as a mode.
 
-**Not yet verified, and the point of the change:** no review has run under the new config, so the
-promised drop from 6104 bytes has not been measured. Do that on PR #25's review and record the
-number here. If it has not shrunk, the knobs are wrong and the issue should be reopened rather than
-quietly assumed to have worked.
+**Measured on PR #25, the first review under the new config:**
+
+| | comment size |
+|---|---|
+| PR #22, old config, verdict "no actionable comments" | 6104 bytes / 129 lines |
+| PR #25, new config, verdict "1 actionable comment" | 3298 bytes / 61 lines |
+
+Roughly half, and the smaller comment is the one with *more* to report — #22 had nothing to say and
+still spent twice the bytes saying it. Not a controlled comparison (different PRs, different
+content), but the direction is unambiguous and the packaging blocks are visibly gone.
 
 Two settings were kept on against the general direction of the change: `review_status`, which is
 what carries the "review skipped" and quota notices — losing those would hide exactly the failure
