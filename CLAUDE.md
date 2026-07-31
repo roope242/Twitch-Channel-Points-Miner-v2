@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Starting a session? Read `ISSUES.md` first.** It is the handoff document: what is in flight and
+at which commit, what to do next and why, what every closed issue taught, and the PR/review
+workflow. Its "Start here" section lists the first actions of a session — including re-triggering
+any CodeRabbit review that a quota block stopped the day before. Update its "Start here" and
+"In flight" sections before a session ends.
+
 ## What this is
 
 A Twitch channel-points miner: it logs into Twitch as a user, keeps "watching" streams to accrue
