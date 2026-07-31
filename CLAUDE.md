@@ -8,6 +8,10 @@ workflow. Its "Start here" section lists the first actions of a session — incl
 any CodeRabbit review that a quota block stopped the day before. Update its "Start here" and
 "In flight" sections before a session ends.
 
+`scripts/cr-wait.sh <pr>` is the only reliable way to detect a CodeRabbit verdict: it submits no
+formal review, so `gh api .../pulls/N/reviews` is always empty, and it edits comments in place —
+deleting text as well as adding it. Do not improvise a poll; see `ISSUES.md` "Start here".
+
 ## What this is
 
 A Twitch channel-points miner: it logs into Twitch as a user, keeps "watching" streams to accrue
@@ -44,6 +48,14 @@ before/after on the #12 XSS fix: `.append(string)` created a live `<img onerror=
 version created none. Caveat: jsdom does not fire `onerror`/`onload`, so assert on element
 creation and attributes, not on handler execution.
 
+Driving `script.js` itself needs stubs for `daysAgo`, an `ApexCharts` class, and
+`Element.prototype.scrollIntoView`/`window.alert`, which jsdom does not implement. The trap:
+**install any `setTimeout` stub *after* `w.eval(jquerySource)`** — jQuery schedules its own ready
+callback through `setTimeout`, so stubbing first silently stops every `$(document).ready` handler
+from running while unrelated assertions still pass. Assert that ready ran. Exceptions inside
+`renderStreamers`'s Promise executor are swallowed into a rejection, surfacing only as an unhandled
+rejection after the run.
+
 A live run *is* available: `.venv` has every dependency
 (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
 so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
@@ -61,6 +73,7 @@ profile, flake8 `--max-line-length=88 --extend-ignore=E501`). It is not installe
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install pre-commit   # not installed in this environment
+# black is already in .venv; isort is NOT -- install it or the import-ordering half silently no-ops
 .venv/bin/pre-commit run --all-files
 ```
 
@@ -201,6 +214,10 @@ installs on the next start — no README warning needed, and nothing is fetched 
 The server is unauthenticated and defaults to binding `127.0.0.1`. It now has one state-changing
 route (`POST /refresh_followers`); keep that in mind before adding more.
 
+`charts.html` pins its CDN includes with sha512 SRI. Regenerate with python `hashlib` — **`openssl`
+is not installed here** — and cross-check against `api.cdnjs.com/libraries/<lib>/<ver>?fields=sri`
+or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
+
 ## Conventions
 
 - Explicit identity comparisons — `if x is True:` / `is False:` — throughout. Match it.
@@ -231,3 +248,7 @@ git fetch upstream && git checkout -b <branch> upstream/master
 git cherry-pick <sha>
 gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
 ```
+
+Fork PR bodies must state the code was written by an AI agent. **Upstream PR bodies must not raise
+it** — omit, never misrepresent, since some maintainers reject AI-authored PRs on sight. The
+`Co-Authored-By: Claude` commit trailers ride along on cherry-picks and are deliberately left.
