@@ -16,14 +16,12 @@ The empty context is the point, not the model tier. Handing the reviewer the imp
 session's reasoning re-creates the blind spot that produced the bug, so tell it the base and head
 and nothing about why the change is right.
 
-CodeRabbit's automatic PR reviews are **off** (`.coderabbit.yaml`, 2026-08-01). The GitHub App is
-still installed and `@coderabbitai review` still works on demand — reserve it for a PR big enough
-that a third opinion earns its cost. `scripts/cr-wait.sh` exists for that case and stays accurate:
-CodeRabbit submits no formal review, so `gh api .../pulls/N/reviews` is always empty, and it edits
-comments in place. Run it **unpiped** — `| tail` masks the exit code that is its whole API (0
-verdict, 2 quota, 3 timeout). Its verdict outranks any single comment: on PR #25 the *newest* bot
-comment said "Review finished" and affirmed the fix by name, while the "couldn't start this
-review" quota warning sat in the *older* summary comment, edited in place.
+CodeRabbit's automatic PR reviews are **off** (`.coderabbit.yaml`, 2026-08-01); the GitHub App
+stays installed for `@coderabbitai review` on a PR big enough to earn a third opinion. Detect its
+verdict only with `scripts/cr-wait.sh <pr>`, run **unpiped** (`| tail` masks the exit code that is
+its whole API: 0 verdict, 2 quota, 3 timeout). It submits no formal review — `pulls/N/reviews` is
+always empty — and edits comments in place, so a chatty "Review finished" can sit alongside an
+older, edited-in-place "couldn't start this review". Trust the script, not a comment.
 
 ## What this is
 
@@ -78,8 +76,8 @@ file rather than starting over. It loads the real `assets/script.js` into jsdom 
 jQuery 3.5.1 that `charts.html` pins, and it is regression-sensitive: pointed at the pre-#21
 script it reports 9 pass / 12 fail rather than passing vacuously. The technique, if you need it
 elsewhere: load real jQuery into a jsdom document with `w.eval(jquerySource)` and assert on the
-DOM. This gave a decisive
-before/after on the #12 XSS fix: `.append(string)` created a live `<img onerror=…>`, the text-node
+DOM. This gave a decisive before/after on the #12 XSS fix: `.append(string)` created a live
+`<img onerror=…>`, the text-node
 version created none. Caveat: jsdom does not fire `onerror`/`onload`, so assert on element
 creation and attributes, not on handler execution.
 
@@ -194,7 +192,8 @@ Every live HTTP call passes `timeout=REQUESTS_TIMEOUT` (`constants.py`) since #6
 ones with an AST scan rather than grep, since multi-line calls hide from `grep`. Note `requests`
 applies the timeout *per connection attempt*, so N DNS addresses means N × timeout: on a host
 with blackholed IPv6, `raw.githubusercontent.com` (4 AAAA) takes ~40s even with `timeout=10`.
-That is why the GitHub version check runs on a daemon thread rather than in `__init__`.
+That is why `__init__` starts the GitHub version check on a daemon thread rather than calling it
+inline — it fires during construction, which is why tests patch `check_versions`.
 
 Guarded is not the same as loud: `get_followers()` returns `[]` and `get_channel_id()` raises
 `StreamerDoesNotExistException` on *any* failure. A transient error during a followers refresh
@@ -279,8 +278,9 @@ or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
 
 `origin` is the `roope242` fork; its parent is `rdavydov/...`, whose parent is
 `Tkd-Alex/...`. `CLAUDE.md`, `ISSUES.md` (fork-local triage and fix order), `.coderabbit.yaml`,
-`.claude/` and `scripts/cr-wait.sh` exist only on the fork — **never open an upstream PR from
-`master`**, it would carry them along. Branch off `upstream/master`, cherry-pick the fix
+`.claude/`, `scripts/cr-wait.sh`, and the whole test setup (`tests/`, `conftest.py`,
+`requirements-dev.txt`, `.github/workflows/tests.yml`) exist only on the fork — **never open an
+upstream PR from `master`**, it would carry them along. Branch off `upstream/master`, cherry-pick the fix
 commits, and open it cross-fork:
 
 ```bash
