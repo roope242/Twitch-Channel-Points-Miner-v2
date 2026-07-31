@@ -66,7 +66,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `74eb9a8` | Clean, pushed. |
+| `master` | `f257f02` | Clean, pushed. |
+| **PR #25** — issue #21, dashboard JS | branch `fix/dashboard-js-resilience`, head `c53274a` | Open. Code complete, 14/14 jsdom assertions, 8/14 failing on `master`. Awaiting CodeRabbit. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
@@ -98,27 +99,18 @@ to a real Discord webhook.
 
 ## Next up
 
-**#23, then #21.** PR #22 merged on 2026-07-31, so #21's rebase hazard is gone — it touches
-`assets/script.js`, the same file #12 changed, and that change is now on `master`.
+**Land PR #25 (issue #21), then start #10.**
 
-The only user-visible defect in #21 is the log polling. `setTimeout(getLog, 1000)` sits *inside*
-the `$.get` success callback, so one failed request permanently ends log auto-refresh until the
-user toggles the checkbox by hand. `getStreamerData`'s 5-minute refresh has the same shape, and
-`getStreamers` failing leaves the dashboard silently empty. The refresh-followers button at
-`script.js:114` already uses `.done()/.fail()/.always()` correctly — copy that pattern, moving the
-re-schedule into `.always()`.
+#23 and #21 are both done as of 2026-07-31 — #23 committed straight to `master` as `f257f02`,
+#21 open as PR #25. Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
+client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
+orphans a working endpoint. Leave it until someone decides whether the multi-streamer chart view is
+wanted.
 
-The other three in #21 are cosmetic: duplicate `#annotations`/`#dark-mode` bindings (`:187`/`:194`
-inside `$(document).ready` and again at `:388`/`:391` top level), an implicit-global `displayname`
-at `:325`, and missing SRI on four CDN includes in `charts.html:13-16`.
-
-Deliberately *not* in #21: `getAllStreamersData()` at `:290` is uncalled but is the only client of
-the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it orphans a
-working endpoint. Leave it until someone decides whether the multi-streamer chart view is wanted.
-
-**#23 is worth doing before #21, not after.** It is an XS config-only change that shrinks every
-subsequent review comment, so landing it first makes each later review cheaper to read. It is not a
-code fix, so it needs no PR.
+**#24 (black-format the whole package) is filed but deliberately unscheduled.** It conflicts with
+any branch in flight and it contradicts the current `CLAUDE.md` guidance, which must be updated in
+the same commit. Do it when nothing else is open — the issue carries the measurements (18 of 31
+files, 564 diff lines) and the `.git-blame-ignore-revs` mitigation.
 
 After #21, the order is **#10 → #13 → #16**, with **#7 and #11** going upstream rather than being
 fixed here. Reasoning for each is under "Remaining work" below.
@@ -141,8 +133,9 @@ user with the defaults.
 | ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
 | ~~4~~ | `check_assets()` never updates existing assets | S–M | Med | Med | **Closed** — PR #20 |
 | ~~12~~ | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **Closed** — PR #22, `74eb9a8` |
-| 23 | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | Open — next |
-| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | Open — after #23 |
+| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | **PR #25 open** |
+| ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
+| 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
