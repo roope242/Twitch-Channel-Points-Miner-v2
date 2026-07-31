@@ -41,13 +41,18 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q     # 17 tests; `python -m`, not the bare `pytest` script
+.venv/bin/python -m pytest tests/ -q     # 17 tests (root conftest.py makes bare `pytest` work too)
 cd tests/js && npm ci && node --test     # 21 jsdom assertions against the real script.js
 ```
 
 Both run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python 3.9
 and 3.13). **Add to these rather than rebuilding a throwaway harness** — the jsdom suite was
 rewritten from scratch three times before it was committed, each time re-learning the same traps.
+
+**Run the exact command CI runs.** The suite passed locally under `python -m pytest` while CI's
+`pytest tests/ -v` collected nothing — the console script omits the repo root from `sys.path`.
+And check a new suite has *teeth*: point it at the pre-fix revision and confirm it fails (the
+jsdom suite scores 9/21 against pre-#21 `script.js`). A suite that only ever passes proves nothing.
 
 The package is a library; users write their own entry script:
 
@@ -59,8 +64,11 @@ python run.py                 # first run prints a device code to activate at tw
 Nothing *mines* without live Twitch auth, but more is testable offline than it looks. Beyond
 `python3 -m py_compile <changed files>`: login happens in `run()`, not `__init__`, so
 `TwitchChannelPointsMiner(username="…", logger_settings=LoggerSettings(save=False,
-console_level=logging.CRITICAL))` constructs offline — enough to exercise `end()`, the signal
-handlers and anything in `utils.py` for real. `__slots__` blocks monkeypatching methods on it
+console_level=logging.CRITICAL))` constructs without authenticating — enough to exercise `end()`,
+the signal handlers and anything in `utils.py` for real. **It is not offline, though:** `__init__`
+loops `while not is_connected()` on `socket.gethostbyname("twitch.tv")` forever, 5s at a time, so
+with no DNS it never returns. Patch the resolver — see the `offline_construction` fixture in
+`tests/test_miner_lifecycle.py`. `__slots__` blocks monkeypatching methods on it
 (`AttributeError: … is read-only`), so drive it through real calls rather than stubs. Do this:
 `py_compile` and a bare `import` both passed on an `end()` that crashed on the first line it
 reached.
@@ -256,6 +264,9 @@ or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
 - Logging carries `extra={"emoji": ":rocket:", "event": Events.X}`; the emoji/colour handling lives
   in `logger.py`.
 - Name-mangled `__private` methods for internals on the miner and pool classes.
+- `TwitchChannelPointsMiner/__init__.py` re-exports the class under the submodule's own name, so
+  `import TwitchChannelPointsMiner.TwitchChannelPointsMiner as m` binds the **class**, not the
+  module. Use `importlib.import_module(...)` when patching module-level names like `check_versions`.
 - Runtime output directories (`cookies/`, `logs/`, `analytics/`) and `run.py` are all gitignored.
 - **This fork's Python floor is 3.9**, upstream's is still 3.6. The only thing raising it is
   `str.removesuffix()` in `AnalyticsServer.json_all`, added here. Don't contort new code to keep
