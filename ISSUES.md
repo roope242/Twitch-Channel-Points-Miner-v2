@@ -66,12 +66,13 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `12074c8` | Clean, pushed. |
-| **PR #22** — issue #12, untrusted-text sinks | branch `fix/untrusted-text-sinks`, head `07e94d1` | Open. Code complete and verified. **Reviewed clean 2026-07-31** — "no actionable comments", range `34c1181..07e94d1`, which is the branch head. Ready to merge. |
+| `master` | `74eb9a8` | Clean, pushed. |
+| **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
-`fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`) can be
-deleted when convenient — ask first, branch deletion is destructive.
+`fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`,
+`fix/untrusted-text-sinks`) can be deleted when convenient — ask first, branch deletion is
+destructive.
 
 ### What PR #22 contains, if the review needs defending
 
@@ -97,8 +98,8 @@ to a real Discord webhook.
 
 ## Next up
 
-**When PR #22 merges, do #21.** Same file as #12 (`assets/script.js`), so it needs a rebase if it
-starts first — and #12 is the more important of the two.
+**#23, then #21.** PR #22 merged on 2026-07-31, so #21's rebase hazard is gone — it touches
+`assets/script.js`, the same file #12 changed, and that change is now on `master`.
 
 The only user-visible defect in #21 is the log polling. `setTimeout(getLog, 1000)` sits *inside*
 the `$.get` success callback, so one failed request permanently ends log auto-refresh until the
@@ -139,9 +140,9 @@ user with the defaults.
 | ~~6~~ | No HTTP request timeouts | S–M | Med | High | **Closed** |
 | ~~14~~ | Shutdown hangs forever and re-enters itself | S–M | Med | Med | **Closed** — PR #17 |
 | ~~4~~ | `check_assets()` never updates existing assets | S–M | Med | Med | **Closed** — PR #20 |
-| 12 | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **PR #22 open** — reviewed clean, ready to merge |
-| 23 | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | Open |
-| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | Open — next |
+| ~~12~~ | Untrusted text reaches HTML and URL sinks | M | Med–High | Med | **Closed** — PR #22, `74eb9a8` |
+| 23 | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | Open — next |
+| 21 | Dashboard JS: log polling dies on one failed request | S | Low–Med | Med | Open — after #23 |
 | 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
@@ -195,6 +196,26 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #12 — untrusted text in HTML and URL sinks (PR #22, `74eb9a8`)
+
+Three sinks: the dashboard log viewer's `.append(data)`, the webhook query string, and Discord's
+missing `allowed_mentions`. Details of each are in the PR body. Two things worth carrying forward:
+
+- **Two of the issue's three suggested fixes were wrong or incomplete**, which is now a pattern
+  across #15, #14 and this one. `.text(...)` on the log viewer would have replaced the log on every
+  poll instead of appending, and the Discord one-liner was a *no-op* until `data=` also became
+  `json=` — form encoding flattens `allowed_mentions` to `allowed_mentions=parse` and Discord
+  ignores it. Driving the real `send()` with `requests` patched is what caught the second; reading
+  the diff would not have.
+- **Fixing at the sink, not the producer, was the deliberate choice.** `post_gql_request` logs
+  `response.text` at DEBUG and `file_level` defaults to DEBUG, so the untrusted bytes reach the log
+  as a raw API body rather than through a formatted message — escaping producers would have missed
+  the widest path in the default configuration.
+
+The review of this PR also taught the CodeRabbit detection fix now recorded in "Start here":
+`pulls/N/reviews` returned `[]` *after* a completed review, because the bot edits its summary
+comment in place instead of submitting one.
 
 ### #9 — client version refetched per GQL request (`fd55fe6`)
 
@@ -297,10 +318,10 @@ works from a checkout regardless of packaging.
   fundamentally correct or not, and a fix that is worth their review should stand on its
   reproduction and its evidence. So omit the subject upstream — *omit*, not misrepresent: never
   write or imply that a human wrote the code, and answer honestly if a maintainer asks.
-  **Open question, decide before the first upstream PR:** every commit here carries
-  `Co-Authored-By: Claude …` and `Claude-Session: …` trailers, and `git cherry-pick` brings them
-  along, so a cherry-picked upstream branch announces it in the commit metadata regardless of what
-  the body says. Either strip the trailers while rebuilding the branch or accept that they show.
+  Every commit here carries `Co-Authored-By: Claude …` and `Claude-Session: …` trailers and
+  `git cherry-pick` brings them along, so an upstream branch shows them in its commit metadata
+  whatever the body says. **Decided 2026-07-31: leave them.** Do not rewrite commits to strip
+  them — the rule is to not *raise* the subject in the description, not to hide it.
 - **A chat reply is not a review — and neither is an empty `pulls/N/reviews`.** CodeRabbit submits
   no formal review at all; it edits its summary comment in place, so that endpoint stays empty
   forever and proves nothing either way. Check the comment's `updated_at` and its "Recent review
