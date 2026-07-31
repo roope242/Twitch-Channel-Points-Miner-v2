@@ -9,7 +9,8 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01 — #21 and #27 landed; review runs on a local fresh-context agent.
+**Last updated:** 2026-08-01, end of session — #21 and #27 landed, review moved to a local
+fresh-context agent, merged branches cleaned up. Nothing in flight; start with #10.
 
 ---
 
@@ -37,13 +38,14 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `b6736a0` | Clean, pushed. CI green. |
+| `master` | `18e94e7` | Clean, pushed, CI green. Only branch in the repo. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight. **#10 is next** — see "Next up".
+Nothing is in flight. **#10 is next** — see "Next up". All merged branches were deleted on
+2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
 
 ### PR #25's two review rounds, and what the second caught
 
@@ -89,11 +91,6 @@ becomes `real.json`, `currentStreamer` falls back, and firing the one pending 30
 `.then`, so its request lands in whatever test case happens to be running at the next `await` —
 test 6's stray request was being counted against test 7. Await a tick after any `renderStreamers()`
 call. One internal iteration spent of the three.
-
-Nothing else is in progress. Stale local branches from merged PRs (`fix/shutdown-hang`,
-`fix/stale-dashboard-assets`, `chore/coderabbit-config`, `docs/claude-md-session-learnings`,
-`fix/untrusted-text-sinks`) can be deleted when convenient — ask first, branch deletion is
-destructive.
 
 ### What PR #22 contains, if the review needs defending
 
