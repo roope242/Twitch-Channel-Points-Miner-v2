@@ -154,6 +154,16 @@ screenshots/*
 htmls/*
 analytics/*
 
+# check_assets() copies the packaged dashboard files into the working-directory
+# assets/ on every start, so running the miner from the repo root drops copies
+# here. The source of truth is TwitchChannelPointsMiner/assets/; only the README
+# screenshots belong in this folder under version control.
+/assets/banner.png
+/assets/charts.html
+/assets/dark-theme.css
+/assets/script.js
+/assets/style.css
+
 # Replit
 keep_replit_alive.py
 .replit
