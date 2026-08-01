@@ -9,10 +9,10 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01 — **#30 closed** (`ddff42e`, docs-only, straight to `master`). Before
-that, #10 landed (PR #31) and four issues were filed: #29 (inherited workflows fail daily), #32
-(`submit()` capacity race, split out of #31's review), #33 (run the suite in a container). Nothing
-in flight; **#29 is next** — it is the cheapest open item and stops a failure mail every morning.
+**Last updated:** 2026-08-01 — **#30 closed** (`ddff42e`), and the fork now publishes its own Docker
+image, `roopeli/twitch-channel-points-miner-v2` (`b02bef0` + `latest`, amd64). #34 filed against it:
+the image is 1.57 GB. Earlier the same day #10 landed (PR #31) and #29, #32, #33 were filed. Nothing
+in flight; **#29 is next** — cheapest open item, and it stops a failure mail every morning.
 
 ---
 
@@ -43,7 +43,8 @@ Do these in order at the beginning of a session, before starting anything new.
 | `master` | `ddff42e` | Clean, pushed. Only branch in the repo. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
-| **#29, #30, #32, #33** | filed 2026-08-01 | Open, unscheduled. Workflows, README, `submit()` capacity race, container testing. |
+| **Docker image** | `b02bef0`, pushed 2026-08-01 | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0`, amd64 only. Built and pushed by hand from this host. |
+| **#29, #32, #33, #34** | filed 2026-08-01 | Open, unscheduled. Workflows, `submit()` capacity race, container testing, image size. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
@@ -173,6 +174,7 @@ user with the defaults.
 | 29 | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | Open — a failure mail every morning |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
+| 34 | Docker image is 1.57 GB for 652 kB of code | M | n/a — packaging | Med | Open — filed with the image |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
@@ -200,13 +202,31 @@ Note the standing constraint: `TwitchWebSocket` implements `listen()` only — t
 `UNLISTEN` — so a topic subscribed during a session still cannot be dropped. That remains the
 blocker for removing streamers mid-session.
 
-### #29, #30, #33 — inherited from upstream, never reviewed for this fork
+### #34 — the Docker image, and how it gets published
 
-Filed 2026-08-01 after the daily failure mails made #29 visible. All three are the same shape:
-material that came over from `rdavydov/...` and was never read as *this* repo's. #29 is the
-cheapest thing on this list and stops a mail every morning; #30 is the one a stranger actually
-sees. #33 is the bigger one — nothing currently tests Python 3.10, which is what the published
-Docker image runs.
+The fork publishes `roopeli/twitch-channel-points-miner-v2` as of 2026-08-01. First push was
+`b02bef0` and `latest`, amd64 only, digest `sha256:4b69ee5c8aef…`, **built and pushed by hand from
+this host** — so `latest` is whatever someone last ran `podman build` on. Moving that to CI on a tag
+is part of #34.
+
+Verified before pushing, inside the container: the package imports, `__version__` is `2.0.7`, and
+the five packaged dashboard assets are present (so the #4 fix is in the image). Not verified: a
+live mining run from the container.
+
+Credentials for the push live in `~/.config/containers/auth.json` with
+`REGISTRY_AUTH_FILE` exported from `~/.bashrc.d/podman.sh` — podman's default store is
+`$XDG_RUNTIME_DIR/containers/auth.json` on tmpfs and does not survive a reboot. That drop-in is
+**not** read by systemd user units; those need `~/.config/environment.d/`.
+
+`.dockerignore` (`5365fc3`) exists because the build context was 293 MB and included `cookies/` and
+`run.py`. Nothing reached the image, but a future `COPY . .` would have leaked the session.
+
+### #29, #33 — inherited from upstream, never reviewed for this fork
+
+Filed 2026-08-01 after the daily failure mails made #29 visible. Both are the same shape as #30 and
+#34: material that came over from `rdavydov/...` and was never read as *this* repo's. #29 is the
+cheapest thing on this list and stops a mail every morning. #33 is the bigger one — nothing
+currently tests Python 3.10, which is what the published Docker image runs.
 
 ### #13 — device-code login
 
