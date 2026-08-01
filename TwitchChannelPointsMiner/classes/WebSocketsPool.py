@@ -217,13 +217,18 @@ class WebSocketsPool:
             # for on_open() to drain pending_topics once the socket is ready,
             # same as any topic submitted while connecting.
             replacement = self.__new(ws.index)
-            replacement.topics = list(ws.topics)
-            replacement.pending_topics = list(ws.topics)
+            # One snapshot feeding both lists, not two reads of ws.topics: a
+            # topic appended between two reads would be seeded into
+            # pending_topics but not topics, and the sweep below - which checks
+            # topics - would then append it to both, LISTENing it twice.
+            seeded = list(ws.topics)
+            replacement.topics = seeded
+            replacement.pending_topics = list(seeded)
             self.ws[ws.index] = replacement
 
             # Until the line above, submit() still resolved to the retired
             # socket, so a topic could have been appended to ws.topics after
-            # the copies were taken. Sweep it up now that every later submit()
+            # the snapshot was taken. Sweep it up now that every later submit()
             # reaches the replacement instead: __submit's duplicate guard makes
             # this a no-op for everything already seeded.
             for topic in ws.topics:
