@@ -33,30 +33,31 @@ Read more about the channel points [here](https://help.twitch.tv/s/article/chann
 
 # README Contents
 1. 🤝 [Community](#community)
-2. 🚀 [Main differences from the original repository](#main-differences-from-the-original-repository)
-3. 🧾 [Logs feature](#logs-feature)
+2. 🔱 [This fork](#this-fork)
+3. 🚀 [Main differences from the original repository](#main-differences-from-the-original-repository)
+4. 🧾 [Logs feature](#logs-feature)
     - [Full logs](#full-logs)
     - [Less logs](#less-logs)
     - [Final report](#final-report)
-4. 🧐 [How to use](#how-to-use)
+5. 🧐 [How to use](#how-to-use)
     - [Cloning](#by-cloning-the-repository)
     - [Docker](#docker)
     	- [Docker Hub](#docker-hub)
 		- [Portainer](#portainer)
     - [Replit](#replit)
     - [Limits](#limits)
-5. 🔧 [Settings](#settings)
+6. 🔧 [Settings](#settings)
     - [LoggerSettings](#loggersettings)
     - [StreamerSettings](#streamersettings)
     - [BetSettings](#betsettings)
         - [Bet strategy](#bet-strategy)
     - [FilterCondition](#filtercondition)
         - [Example](#example)
-6. 📈 [Analytics](#analytics)
-7. 🍪 [Migrating from an old repository (the original one)](#migrating-from-an-old-repository-the-original-one)
-8. 🪟 [Windows](#windows)
-9. 📱 [Termux](#termux)
-10. ⚠️ [Disclaimer](#disclaimer)
+7. 📈 [Analytics](#analytics)
+8. 🍪 [Migrating from an old repository (the original one)](#migrating-from-an-old-repository-the-original-one)
+9. 🪟 [Windows](#windows)
+10. 📱 [Termux](#termux)
+11. ⚠️ [Disclaimer](#disclaimer)
 
 
 ## Community
@@ -72,6 +73,22 @@ If you want to offer me a coffee, I would be grateful! ❤️
 |<a href="https://boosty.to/rdavydov/donate" target="_blank"><img src="https://static.boosty.to/static/favicon.png?v=11" alt="Donate via Boosty" height="16" width="16"></a>|https://boosty.to/rdavydov/donate|
 
 If you have any issues or you want to contribute, you are welcome! But please read the [CONTRIBUTING.md](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2/blob/master/CONTRIBUTING.md) file.
+
+## This fork
+
+This is [roope242/Twitch-Channel-Points-Miner-v2](https://github.com/roope242/Twitch-Channel-Points-Miner-v2), a fork of [rdavydov/Twitch-Channel-Points-Miner-v2](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2). The badges, credits and donation links above deliberately still point at upstream — this fork adds fixes, not a new project.
+
+Fixes that landed here and are **not** in upstream:
+
+- PubSub reconnection no longer blocks the main loop or races itself, so a dropped connection stops costing minutes of mining.
+- Every live HTTP call has a timeout, and the GitHub version check no longer stalls startup on hosts with broken IPv6.
+- The Twitch client version is cached for 30 minutes instead of being refetched by scraping twitch.tv before *every* GraphQL request.
+- Shutdown is bounded and cannot re-enter itself; worker threads are daemons, so a stuck one cannot hang the exit.
+- Dashboard assets in `assets/` are shipped with the package and refreshed on startup, instead of being downloaded from upstream's `master` at runtime.
+- Dashboard log viewer, webhook URLs and Discord messages escape untrusted text; the dashboard's polling loops survive a failed request instead of dying silently.
+- PubSub errors that mean a bug in the miner (`AttributeError`, `NameError`) are logged with a traceback instead of being swallowed.
+
+Also fork-only: a test suite with CI (see [below](#by-cloning-the-repository)), and `python_requires` is **3.9**, not upstream's 3.6.
 
 ## Main differences from the original repository:
 
@@ -340,8 +357,8 @@ twitch_miner.mine(followers=True, blacklist=["user1", "user2"])  # Blacklist exa
 If `followers=True` and you follow new channels while the miner is running, you don't need to restart to pick them up: the Analytics dashboard (see [Analytics](#analytics)) has a "Refresh followers" button that queues a refresh, applied by the miner on its next loop iteration. This requires `enable_analytics=True` and a running `analytics()` server. Refreshing only **adds** newly followed channels to the current session; channels you've unfollowed keep being mined until the script is restarted.
 
 ### By cloning the repository
-1. Clone this repository `git clone https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2`
-2. Install all the requirements `pip install -r requirements.txt` . If you have problems with requirements, make sure to have at least Python3.6. You could also try to create a _virtualenv_ and then install all the requirements
+1. Clone this repository `git clone https://github.com/roope242/Twitch-Channel-Points-Miner-v2`
+2. Install all the requirements `pip install -r requirements.txt` . **Python 3.9 or newer is required.** You could also try to create a _virtualenv_ and then install all the requirements
 ```sh
 pip install virtualenv
 virtualenv -p python3 venv
@@ -351,10 +368,22 @@ pip install -r requirements.txt
 
 Start mining! `python run.py` 🥳
 
+#### Running the tests
+
+Development dependencies are in `requirements-dev.txt`. Both suites run offline — no Twitch account needed — and both run in CI on every pull request:
+
+```sh
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q          # Python
+cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
+```
+
 ### Docker
 
 #### Docker Hub
 Official Docker images are on https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2 for `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
+
+> **Note:** those images are built from upstream and do **not** contain [this fork's fixes](#this-fork). To run the fork in Docker, build the image from this repository: `docker build -t twitch-miner .`, then use `twitch-miner` in place of `rdavidoff/twitch-channel-points-miner-v2` in the examples below.
 
 The following file is mounted :
 
@@ -730,7 +759,7 @@ pkg install python-pandas
 
 **4. Clone this repository**
 
-`git clone https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2`
+`git clone https://github.com/roope242/Twitch-Channel-Points-Miner-v2`
 
 **5. Go to the miner's directory**
 
