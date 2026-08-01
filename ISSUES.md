@@ -9,9 +9,10 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01, end of session — **#10 landed** (PR #31). Four new issues filed:
-#29 (inherited workflows fail daily), #30 (README is upstream's), #32 (`submit()` capacity race,
-split out of #31's review), #33 (run the suite in a container). Nothing in flight; start with #13.
+**Last updated:** 2026-08-01 — **#30 closed** (`ddff42e`, docs-only, straight to `master`). Before
+that, #10 landed (PR #31) and four issues were filed: #29 (inherited workflows fail daily), #32
+(`submit()` capacity race, split out of #31's review), #33 (run the suite in a container). Nothing
+in flight; **#29 is next** — it is the cheapest open item and stops a failure mail every morning.
 
 ---
 
@@ -39,7 +40,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `6d98a16` | Clean, pushed, CI green. Only branch in the repo. |
+| `master` | `ddff42e` | Clean, pushed. Only branch in the repo. |
+| **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
 | **#29, #30, #32, #33** | filed 2026-08-01 | Open, unscheduled. Workflows, README, `submit()` capacity race, container testing. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
@@ -119,11 +121,16 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #13 (device-code login).** #10 landed on 2026-08-01 as PR #31, so the largest item is
-gone. #13 is small and low-value here — valid cookies mean the path is rarely touched — so the
-honest alternative is skipping it and taking **#29** (the inherited workflows failing daily,
-which sends a mail every morning) or **#30** (the README, which still tells readers this fork
-needs Python 3.6 and to clone upstream). Both are cheap and both are visible.
+**Start #29 (the inherited badge workflows failing daily).** It is the cheapest thing open and it
+stops a failure mail every morning. After that, **#13** (device-code login) is next in the fix
+order, though it is small and low-value here — valid cookies mean the path is rarely touched — so
+batching it with an upstream submission is reasonable.
+
+#30 was done on 2026-08-01 as `ddff42e`, taking option 1 (minimal) from the issue: Python floor,
+both clone URLs, a "This fork" section, the test-suite pointer, and a note that the Docker Hub
+images are upstream builds. Badges, credits and donation links deliberately still point upstream,
+so an upstream README merge stays clean. Both documented test commands were run as written; the
+`docker build` line in the new Docker note was not executed.
 
 Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
 client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
@@ -164,7 +171,7 @@ user with the defaults.
 | ~~10~~ | PubSub reconnection blocks main loop, races itself | L | High | High | **Closed** — PR #31, `6d98a16` |
 | 32 | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | Open — split out of #31's review |
 | 29 | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | Open — a failure mail every morning |
-| 30 | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | Open |
+| ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
