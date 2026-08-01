@@ -379,7 +379,7 @@ cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
 ### Docker
 
 #### Docker Hub
-Images for this fork are on https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2, for `linux/amd64`. If you need `arm64` or `arm/v7`, build from this repository — the `Dockerfile` supports them, they are just not published here.
+Images for this fork are on https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2, for `linux/amd64`. If you need `arm64`, build from this repository — the `Dockerfile` supports it, it is just not published here. `arm/v7` is **not** supported: the image installs no compiler, and `numpy`/`pandas` publish no 32-bit ARM wheels to fall back on.
 
 > **Note:** upstream's images (`rdavidoff/twitch-channel-points-miner-v2`) do **not** contain [this fork's fixes](#this-fork). Use `roopeli/...` for this repository, or build it yourself with `docker build -t twitch-miner .`.
 
