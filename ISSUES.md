@@ -12,9 +12,9 @@ the context runs out.
 **Last updated:** 2026-08-01, end of session — **#34 closed**: the image is **324 MB**, down from
 1.57 GB (`python:3.10-slim-bookworm`, no toolchain, no `apt`). Earlier the same day **#30 and #29
 closed** (`ddff42e`, `90797a3`) and the fork started publishing its own Docker image,
-`roopeli/twitch-channel-points-miner-v2`; #10 landed (PR #31) and #32, #33 were filed. Nothing in
-flight; **#32 is in progress** (the only open correctness bug that affects a running miner) — see
-"Next up".
+`roopeli/twitch-channel-points-miner-v2`; #10 landed (PR #31) and #32, #33 were filed. **#32 then
+closed too** (PR #35, `888c375`) — the last open correctness bug affecting a running miner.
+Nothing in flight; **#13 is next** — see "Next up".
 
 `6f5cad8` went in without a PR; `pr-reviewer` was run on it after the fact and found two real
 things, both fixed in `d9f2bad` (also straight to `master`, at the user's call): the README
@@ -50,13 +50,13 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `d9f2bad` | Clean, pushed. Only branch in the repo. |
+| `master` | `888c375` | Clean, pushed. Only branch in the repo. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
 | **Docker image** | `b02bef0` pushed 2026-08-01 (1.57 GB); rebuilt at 324 MB, **not pushed** | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0` on Docker Hub are still the 1.57 GB build. The slim rebuild exists locally only. |
 | **#34** — image was 1.57 GB for 652 kB of code | this session | **Closed 2026-08-01.** 324 MB, 79% smaller. Publishing it and moving builds to CI are still open. |
-| **#32** — `submit()` capacity race | in progress 2026-08-01 | Started this session. `submit()` sizes the pool off `self.ws[-1].topics`, which is empty for the 30s a reconnect takes to replay. |
+| **PR #35** — issue #32, `submit()` capacity race | merge commit `888c375` | **Merged 2026-08-01.** Four review rounds; CI green; live-verified in the container. The reconnect path itself was never exercised against a live socket — see below. |
 | **#33** | filed 2026-08-01 | Open, unscheduled. Container testing. |
 | **`6f5cad8` review debt** | `d9f2bad` | **Paid 2026-08-01.** Post-hoc `pr-reviewer` run on a commit that skipped review; 2 findings, both fixed. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
@@ -64,8 +64,39 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-**#32 is in flight** — see "Next up". All merged branches were deleted on
+Nothing is in flight. **#13 is next** — see "Next up". All merged branches were deleted on
 2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
+
+### PR #35's four review rounds, and the shape they had
+
+Each round found something real and strictly narrower than the last, all in the same eight lines of
+`__reconnect`. Worth keeping because the pattern — a fix that closes the window it names and opens
+its mirror image — is the thing to watch for in this file.
+
+1. **Publish-then-seed.** The replacement went into `self.ws[ws.index]` and was seeded on the next
+   two lines. `submit()` takes no lock, so in that gap it read 0 topics; the seeding then *rebound*
+   both lists, discarding what `__submit` had appended. Silently unsubscribed for the session.
+2. **Seed-then-publish left the mirror.** Until the store, `submit()` still resolved to the
+   *retired* socket, so a topic appended to `ws.topics` after the snapshot was in neither list. No
+   ordering fixes this — the sweep after publishing does, because past the store every `submit()`
+   reaches the replacement.
+3. **Two snapshots could disagree.** `topics` and `pending_topics` were each seeded from their own
+   `list(ws.topics)`; a topic landing between the reads was in `pending_topics` only, so the sweep
+   (which checks `topics`) re-appended it and `on_open` sent the LISTEN twice. One snapshot, copied.
+4. Clean.
+
+**Do not read "reviewed clean" as "exercised".** Every test and every review harness stubs
+`__start`, so no rebuilt socket has ever connected and no LISTEN from one has been seen leaving the
+process — which matters because this PR deleted the delayed replay, making `on_open` draining
+`pending_topics` the only route by which a rebuilt connection resubscribes. The live container run
+covers startup and steady state, not reconnection. Forcing a real reconnect needs a genuinely stale
+connection; a run long enough to get one is the outstanding verification here.
+
+Also on the record: `f1a59b6` deleted `test_shutdown_after_the_rebind_stops_the_topic_replay`
+without replacement, since the replay it guarded no longer exists. That is a net −1 on shutdown
+coverage of `__reconnect`, and the pre-existing orphan-replacement race (`end()` marks the retired
+socket, `__reconnect` then publishes and starts a replacement nobody closes) stays unguarded —
+harmless while every thread is a daemon and `end()` reaches `sys.exit(0)`.
 
 ### PR #25's two review rounds, and what the second caught
 
@@ -136,8 +167,8 @@ to a real Discord webhook.
 
 ## Next up
 
-**#32 (`submit()` overfills a connection during a reconnect) is in progress** — it is the only
-open *correctness* item that affects a running miner. After it, #13 (device-code login) and #33.
+**#32 is closed** (PR #35, `888c375`) — it was the last open *correctness* item affecting a running
+miner. **#13 (device-code login) is next**, then #33.
 
 #13 is small and low-value here — valid cookies mean the path is rarely touched — so batching it
 with an upstream submission is reasonable.
@@ -195,7 +226,7 @@ user with the defaults.
 | ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | ~~10~~ | PubSub reconnection blocks main loop, races itself | L | High | High | **Closed** — PR #31, `6d98a16` |
-| 32 | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | Open — split out of #31's review |
+| ~~32~~ | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | **Closed** — PR #35, `888c375` |
 | ~~29~~ | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | **Closed** — `90797a3` |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
