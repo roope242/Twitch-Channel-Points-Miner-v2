@@ -13,8 +13,16 @@ the context runs out.
 1.57 GB (`python:3.10-slim-bookworm`, no toolchain, no `apt`). Earlier the same day **#30 and #29
 closed** (`ddff42e`, `90797a3`) and the fork started publishing its own Docker image,
 `roopeli/twitch-channel-points-miner-v2`; #10 landed (PR #31) and #32, #33 were filed. Nothing in
-flight; **#32 is next** (the only open correctness bug that affects a running miner) — see
+flight; **#32 is in progress** (the only open correctness bug that affects a running miner) — see
 "Next up".
+
+`6f5cad8` went in without a PR; `pr-reviewer` was run on it after the fact and found two real
+things, both fixed in `d9f2bad` (also straight to `master`, at the user's call): the README
+promised an `arm/v7` build the toolchain-free Dockerfile can no longer do (no `armv7l` wheels for
+`numpy`/`pandas`, no compiler to fall back on — `arm64` does still build, verified under
+emulation), and `setup.py` had never listed `validators` despite `classes/Twitch.py:15` importing
+it at module scope. **Reviewing after the fact works, but it is the wrong order** — the fixes
+landed on `master` unreviewed themselves.
 
 ---
 
@@ -42,19 +50,21 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `90797a3` | Clean, pushed. Only branch in the repo. |
+| `master` | `d9f2bad` | Clean, pushed. Only branch in the repo. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
 | **Docker image** | `b02bef0` pushed 2026-08-01 (1.57 GB); rebuilt at 324 MB, **not pushed** | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0` on Docker Hub are still the 1.57 GB build. The slim rebuild exists locally only. |
 | **#34** — image was 1.57 GB for 652 kB of code | this session | **Closed 2026-08-01.** 324 MB, 79% smaller. Publishing it and moving builds to CI are still open. |
-| **#32, #33** | filed 2026-08-01 | Open, unscheduled. `submit()` capacity race, container testing. |
+| **#32** — `submit()` capacity race | in progress 2026-08-01 | Started this session. `submit()` sizes the pool off `self.ws[-1].topics`, which is empty for the 30s a reconnect takes to replay. |
+| **#33** | filed 2026-08-01 | Open, unscheduled. Container testing. |
+| **`6f5cad8` review debt** | `d9f2bad` | **Paid 2026-08-01.** Post-hoc `pr-reviewer` run on a commit that skipped review; 2 findings, both fixed. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight. **#32 is next** — see "Next up". All merged branches were deleted on
+**#32 is in flight** — see "Next up". All merged branches were deleted on
 2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
 
 ### PR #25's two review rounds, and what the second caught
@@ -126,8 +136,8 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #32 (`submit()` overfills a connection during a reconnect)** — it is the only open
-*correctness* item that affects a running miner. After it, #13 (device-code login) and #33.
+**#32 (`submit()` overfills a connection during a reconnect) is in progress** — it is the only
+open *correctness* item that affects a running miner. After it, #13 (device-code login) and #33.
 
 #13 is small and low-value here — valid cookies mean the path is rarely touched — so batching it
 with an upstream submission is reasonable.
