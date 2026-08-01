@@ -3,6 +3,7 @@ import logging
 import random
 import time
 # import os
+from collections import deque
 from threading import Lock, Thread, Timer
 # from pathlib import Path
 
@@ -22,6 +23,12 @@ from TwitchChannelPointsMiner.utils import (
 
 logger = logging.getLogger(__name__)
 
+# How many recently seen messages the duplicate check remembers. Big enough that
+# other connections' traffic cannot push a message's own copy out of the window,
+# small enough that two genuine events sharing a timestamp and an identifier
+# stay vanishingly unlikely.
+RECENT_MESSAGES_WINDOW = 20
+
 
 class WebSocketsPool:
     __slots__ = [
@@ -30,9 +37,8 @@ class WebSocketsPool:
         "streamers",
         "events_predictions",
         "reconnect_lock",
-        "last_message_lock",
-        "last_message_timestamp",
-        "last_message_type_channel",
+        "recent_messages_lock",
+        "recent_messages",
     ]
 
     def __init__(self, twitch, streamers, events_predictions):
@@ -44,10 +50,12 @@ class WebSocketsPool:
         # handle_reconnection is reached from four different threads.
         self.reconnect_lock = Lock()
         # Duplicate detection has to be shared across connections - the whole
-        # point is catching the same message arriving on two of them.
-        self.last_message_lock = Lock()
-        self.last_message_timestamp = None
-        self.last_message_type_channel = None
+        # point is catching the same message arriving on two of them. It also
+        # has to be a window rather than just the previous message: another
+        # connection's traffic interleaves, so "the last one we saw" is not
+        # "the last one this message could be a copy of".
+        self.recent_messages_lock = Lock()
+        self.recent_messages = deque(maxlen=RECENT_MESSAGES_WINDOW)
 
     """
     API Limits
@@ -66,8 +74,12 @@ class WebSocketsPool:
 
     def __submit(self, index, topic):
         # Topic in topics should never happen. Anyway prevent any types of duplicates
-        if topic not in self.ws[index].topics:
-            self.ws[index].topics.append(topic)
+        # Bail out entirely: LISTEN-ing again on a connection that already carries
+        # the topic is the duplicate this guard exists to prevent.
+        if topic in self.ws[index].topics:
+            return
+
+        self.ws[index].topics.append(topic)
 
         if self.ws[index].is_opened is False:
             self.ws[index].pending_topics.append(topic)
@@ -197,11 +209,14 @@ class WebSocketsPool:
                 return
             # Create a new connection.
             self.ws[ws.index] = self.__new(ws.index)
+            replacement = self.ws[ws.index]
 
             self.__start(ws.index)  # Start a new thread.
 
         time.sleep(30)
-        if ws.forced_close is True:
+        # end() marks whatever is in self.ws, so past the rebind above it is the
+        # replacement that carries forced_close - the retired socket never will.
+        if replacement.forced_close is True:
             return
 
         for topic in ws.topics:
@@ -218,20 +233,15 @@ class WebSocketsPool:
 
             # If we have more than one PubSub connection, messages may be duplicated
             # Check the concatenation between message_type.top.channel_id
-            # The state lives on the pool, not on the socket: a duplicate arrives
+            # The window lives on the pool, not on the socket: a duplicate arrives
             # on a *different* connection, and on_message runs on each of them.
             pool = ws.parent_pool
-            with pool.last_message_lock:
-                if (
-                    pool.last_message_type_channel is not None
-                    and pool.last_message_timestamp is not None
-                    and pool.last_message_timestamp == message.timestamp
-                    and pool.last_message_type_channel == message.identifier
-                ):
+            seen = (message.timestamp, message.identifier)
+            with pool.recent_messages_lock:
+                if seen in pool.recent_messages:
                     return
 
-                pool.last_message_timestamp = message.timestamp
-                pool.last_message_type_channel = message.identifier
+                pool.recent_messages.append(seen)
 
             streamer_index = get_streamer_index(ws.streamers, message.channel_id)
             if streamer_index != -1:

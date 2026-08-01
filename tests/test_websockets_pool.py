@@ -16,7 +16,10 @@ The four defects, and how each is pinned here:
   `RacingSocket` forces the interleaving the lock has to survive - without it
   the window is a few bytecodes wide and a plain race would almost never lose.
 - Duplicate-message state lived on the individual socket, which is the one place
-  it cannot work: a duplicate arrives on a *different* connection.
+  it cannot work: a duplicate arrives on a *different* connection. It is a
+  bounded window on the pool now, not the single previous message - with two
+  connections the other one's traffic interleaves, and a single slot has been
+  overwritten by the time the copy shows up.
 - `PubsubTopic` had no `__eq__`, so `topic not in ws.topics` was an identity
   check and a re-added streamer got its topic listened to twice.
 """
@@ -106,13 +109,18 @@ def reconnect_env(monkeypatch):
 
     def fake_new(self, index):
         calls["new"] += 1
-        return SimpleNamespace(index=index, topics=[])
+        return SimpleNamespace(index=index, topics=[], forced_close=False)
 
     def fake_start(self, index):
         calls["start"] += 1
 
+    def fake_submit(self, index, topic):
+        calls["submit"] += 1
+
+    calls["submit"] = 0
     monkeypatch.setattr(WebSocketsPool, "_WebSocketsPool__new", fake_new)
     monkeypatch.setattr(WebSocketsPool, "_WebSocketsPool__start", fake_start)
+    monkeypatch.setattr(WebSocketsPool, "_WebSocketsPool__submit", fake_submit)
     monkeypatch.setattr(pool_module, "internet_connection_available", lambda: True)
     monkeypatch.setattr(pool_module, "time", fake_time(lambda seconds: None))
 
@@ -197,6 +205,30 @@ def test_forced_close_during_the_wait_cancels_the_rebuild(reconnect_env, monkeyp
     assert pool.ws[0] is ws
 
 
+def test_shutdown_after_the_rebind_stops_the_topic_replay(reconnect_env, monkeypatch):
+    # end() sets forced_close on whatever is in self.ws, so once the rebind has
+    # happened it marks the *replacement*. Reading the retired socket's flag
+    # would miss the shutdown and replay every topic into a closed connection.
+    pool, calls = reconnect_env
+    ws = add_socket(pool)
+    ws.topics.append(PubsubTopic("video-playback-by-id", streamer=make_streamer(123)))
+
+    sleeps = {"count": 0}
+
+    def sleep_then_shut_down(seconds):
+        sleeps["count"] += 1
+        if sleeps["count"] == 2:  # the wait after the socket was rebuilt
+            pool.ws[0].forced_close = True  # what WebSocketsPool.end() does now
+
+    monkeypatch.setattr(pool_module, "time", fake_time(sleep_then_shut_down))
+
+    WebSocketsPool.handle_reconnection(ws)
+    join_reconnect_threads()
+
+    assert calls["new"] == 1
+    assert calls["submit"] == 0
+
+
 def claim_available_message(channel_id="123", timestamp="2026-08-01T12:00:00Z"):
     payload = {
         "type": "claim-available",
@@ -266,11 +298,66 @@ def test_pubsub_topic_equality_is_by_value():
     assert user_topic != PubsubTopic("community-points-user-v1", user_id=43)
 
 
-def test_resubmitting_an_equal_topic_does_not_duplicate_it():
-    # The case that made this matter: a followers refresh builds a brand new
-    # PubsubTopic for a streamer the connection is already subscribed to.
+def test_interleaved_duplicate_is_still_caught(monkeypatch):
+    # The reason the pool remembers a window and not just the previous message:
+    # with two connections, the other one's traffic lands between a message and
+    # its copy. A single-slot check has been evicted by then and lets the copy
+    # through, double-claiming the bonus.
+    claimed = []
+    pool = WebSocketsPool(
+        twitch=SimpleNamespace(
+            claim_bonus=lambda streamer, claim_id: claimed.append(claim_id)
+        ),
+        streamers=[
+            SimpleNamespace(channel_id="123"),
+            SimpleNamespace(channel_id="456"),
+        ],
+        events_predictions={},
+    )
+    first = TwitchWebSocket(index=0, parent_pool=pool, url=WEBSOCKET)
+    second = TwitchWebSocket(index=1, parent_pool=pool, url=WEBSOCKET)
+
+    message = claim_available_message(channel_id="123")
+    WebSocketsPool.on_message(first, message)
+    # Another connection's message for a different channel, in between.
+    WebSocketsPool.on_message(
+        second,
+        claim_available_message(channel_id="456", timestamp="2026-08-01T12:00:01Z"),
+    )
+    WebSocketsPool.on_message(second, message)
+
+    assert claimed == ["claim-2026-08-01T12:00:00Z", "claim-2026-08-01T12:00:01Z"]
+
+
+def test_the_duplicate_window_is_bounded():
+    # It has to forget eventually, or a long-running miner grows a list per
+    # message for the life of the process.
     pool = WebSocketsPool(twitch=None, streamers=[], events_predictions={})
     ws = TwitchWebSocket(index=0, parent_pool=pool, url=WEBSOCKET)
+
+    for minute in range(pool_module.RECENT_MESSAGES_WINDOW * 3):
+        WebSocketsPool.on_message(
+            ws, claim_available_message(timestamp=f"2026-08-01T12:{minute:02d}:00Z")
+        )
+
+    assert len(pool.recent_messages) == pool_module.RECENT_MESSAGES_WINDOW
+
+
+def test_resubmitting_an_equal_topic_does_not_listen_twice():
+    # The case that made this matter: a followers refresh builds a brand new
+    # PubsubTopic for a streamer the connection is already subscribed to.
+    # Recording it once is not enough - the second LISTEN must not be sent.
+    sent = []
+    pool = WebSocketsPool(
+        twitch=SimpleNamespace(
+            twitch_login=SimpleNamespace(get_auth_token=lambda: "token")
+        ),
+        streamers=[],
+        events_predictions={},
+    )
+    ws = TwitchWebSocket(index=0, parent_pool=pool, url=WEBSOCKET)
+    ws.is_opened = True
+    ws.send = lambda request: sent.append(request)
     pool.ws.append(ws)
 
     pool._WebSocketsPool__submit(
@@ -281,3 +368,15 @@ def test_resubmitting_an_equal_topic_does_not_duplicate_it():
     )
 
     assert len(ws.topics) == 1
+    assert len(sent) == 1
+
+    # A socket that has not opened yet queues instead of sending; the duplicate
+    # must not reach that queue either.
+    pending_ws = TwitchWebSocket(index=1, parent_pool=pool, url=WEBSOCKET)
+    pool.ws.append(pending_ws)
+    for _ in range(2):
+        pool._WebSocketsPool__submit(
+            1, PubsubTopic("video-playback-by-id", streamer=make_streamer(999))
+        )
+
+    assert len(pending_ws.pending_topics) == 1
