@@ -92,12 +92,22 @@ rejection after the run.
 next `await` — inside whatever case is running by then. Await a tick after calling it, or requests
 bleed across test cases.
 
-A live run *is* available: `.venv` has every dependency
-(Python 3.14), `run.py` is configured, and `cookies/roope242.pkl` skips the device-code step —
-so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is block-buffered otherwise
-and you see nothing. Priming ~74 followers takes ~2 minutes before the main loop starts.
+**A live run is the strongest verification available, and it is usually available. Use it.**
+Check for the cookie file first — `ls cookies/*.pkl` — and if one exists, finish any change that
+touches the running flow (login, PubSub, the main loop, GQL calls, the dashboard server) with a
+real run rather than stopping at the offline suite. Say in the PR body whether the change was
+exercised live; if the cookie file is missing or the run was skipped, say *that* instead of
+implying coverage the change never got.
+
+`.venv` has every dependency (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl`
+skips the device-code step — so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is
+block-buffered otherwise and you see nothing. Priming ~74 followers takes ~2 minutes before the
+main loop starts, so give it 3-4 minutes before reading the output as the steady state.
 The minute watcher only watches the top 2 streamers by priority, so a newly added streamer is
 usually subscribed but *not* watched — don't read that as a bug.
+
+A live run is real mining on the user's real account: it claims bonuses and, if `run.py` ever
+enables them, places bets. Keep runs short and don't leave one going after the check is done.
 
 `example.py` is the canonical documentation of the public surface: every constructor option of
 `TwitchChannelPointsMiner`, `LoggerSettings`, `StreamerSettings`, and `BetSettings` appears there

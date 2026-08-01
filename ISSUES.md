@@ -454,10 +454,13 @@ above for why it proves nothing.
 
 What actually works, in rough order of strength:
 
-- **Live run.** `.venv/bin/python -u run.py` mines for real; `cookies/roope242.pkl` skips the
+- **Live run — check for it and use it.** `ls cookies/*.pkl`; if a cookie file is there, a change
+  touching the running flow gets a real run before it is called done, and the PR body says whether
+  it got one. `.venv/bin/python -u run.py` mines for real; `cookies/roope242.pkl` skips the
   device-code step. Use `-u` or stdout block-buffers and you see nothing. Priming ~74 followers
   takes ~2 minutes before the main loop starts. The minute watcher only watches the top 2 streamers
   by priority, so a newly added streamer is usually subscribed but *not* watched — not a bug.
+  It is the user's real account: keep the run short and stop it when the check is done.
 - **Offline construction.** Login happens in `run()`, not `__init__`, so the miner constructs
   offline with `logger_settings=LoggerSettings(save=False, console_level=logging.CRITICAL)` —
   enough to exercise `end()`, the signal handlers, and anything in `utils.py` for real. `__slots__`
