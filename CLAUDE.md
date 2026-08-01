@@ -99,10 +99,23 @@ real run rather than stopping at the offline suite. Say in the PR body whether t
 exercised live; if the cookie file is missing or the run was skipped, say *that* instead of
 implying coverage the change never got.
 
-`.venv` has every dependency (Python 3.14), `run.py` is configured, and `cookies/roope242.pkl`
-skips the device-code step — so `.venv/bin/python -u run.py` mines for real. Use `-u`; stdout is
-block-buffered otherwise and you see nothing. Priming ~74 followers takes ~2 minutes before the
-main loop starts, so give it 3-4 minutes before reading the output as the steady state.
+**Run it in the container, not the host venv** — that is what ships and what the user runs.
+`run.py` is configured and `cookies/roope242.pkl` skips the device-code step:
+
+```bash
+podman build --platform linux/amd64 -t tcpm:test .
+timeout 420 podman run --rm -v ./run.py:/usr/src/app/run.py:ro,Z \
+  -v ./cookies:/usr/src/app/cookies:Z tcpm:test
+```
+
+**`--platform linux/amd64` is not optional.** `podman build` reuses a locally-stored base image
+of the *wrong* architecture if one is tagged `python:3.10-slim-bookworm` — an arm64 base left by
+an earlier emulated build gave a qemu run 2.5× slower that never reached the WebSocket phase in
+5 minutes. Check with `podman image inspect <tag> --format '{{.Architecture}}'`.
+
+Priming ~74 followers takes ~2.5 minutes in the container; budget **7 minutes** before reading
+the output as steady state. `ENV PYTHONUNBUFFERED=1` is in the Dockerfile, so no `-u` needed.
+Two WebSocket connections opening (`#0`, `#1`) means `submit()`'s capacity path ran for real.
 The minute watcher only watches the top 2 streamers by priority, so a newly added streamer is
 usually subscribed but *not* watched — don't read that as a bug.
 
@@ -227,6 +240,11 @@ during a session cannot currently be dropped. This is the blocker for removing s
 `WebSocketsPool.on_message` is a large dispatch on `message.topic`; it resolves the streamer by
 channel id via `get_streamer_index()` each time, so it tolerates the list growing.
 
+`__submit` re-resolves `self.ws[index]` on every call rather than closing over a socket object,
+so an index stays valid across a rebind — `self.ws` is only appended to or index-assigned, never
+rebound or shrunk. That is what lets `__reconnect` repair the pool by index after publishing a
+replacement.
+
 The whole dispatch sits inside one `except Exception` that only logs. A typo or a call to a
 method that doesn't exist surfaces as a single error line and nothing else — read this
 handler skeptically and don't trust "no crash" as evidence a branch works.
@@ -299,6 +317,9 @@ git fetch upstream && git checkout -b <branch> upstream/master
 git cherry-pick <sha>
 gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
 ```
+
+Every `gh` command needs `--repo roope242/Twitch-Channel-Points-Miner-v2`. With `upstream` as a
+remote, bare `gh pr view`/`gh pr list` resolve there and report a fork PR as nonexistent.
 
 Fork PR bodies must state the code was written by an AI agent. **Upstream PR bodies must not raise
 it** — omit, never misrepresent, since some maintainers reject AI-authored PRs on sight. The
