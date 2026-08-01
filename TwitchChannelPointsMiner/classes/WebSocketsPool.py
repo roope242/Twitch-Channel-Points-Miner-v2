@@ -3,7 +3,7 @@ import logging
 import random
 import time
 # import os
-from threading import Thread, Timer
+from threading import Lock, Thread, Timer
 # from pathlib import Path
 
 from dateutil import parser
@@ -24,13 +24,30 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketsPool:
-    __slots__ = ["ws", "twitch", "streamers", "events_predictions"]
+    __slots__ = [
+        "ws",
+        "twitch",
+        "streamers",
+        "events_predictions",
+        "reconnect_lock",
+        "last_message_lock",
+        "last_message_timestamp",
+        "last_message_type_channel",
+    ]
 
     def __init__(self, twitch, streamers, events_predictions):
         self.ws = []
         self.twitch = twitch
         self.streamers = streamers
         self.events_predictions = events_predictions
+        # Guards both the is_reconnecting claim and the self.ws[index] rebind:
+        # handle_reconnection is reached from four different threads.
+        self.reconnect_lock = Lock()
+        # Duplicate detection has to be shared across connections - the whole
+        # point is catching the same message arriving on two of them.
+        self.last_message_lock = Lock()
+        self.last_message_timestamp = None
+        self.last_message_type_channel = None
 
     """
     API Limits
@@ -130,40 +147,65 @@ class WebSocketsPool:
 
     @staticmethod
     def handle_reconnection(ws):
-        # Reconnect only if ws.is_reconnecting is False to prevent more than 1 ws from being created
-        if ws.is_reconnecting is False:
+        # Claim the reconnection atomically: this is reached from the main loop,
+        # from on_close, from the ping check and from the RECONNECT message, and
+        # two winners would leave an orphaned connection still holding topics.
+        with ws.parent_pool.reconnect_lock:
+            if ws.is_reconnecting is True:
+                return
+
             # Close the current WebSocket.
             ws.is_closed = True
             ws.keep_running = False
-            # Reconnect only if ws.forced_close is False (replace the keep_running)
 
             # Set the current socket as reconnecting status
             # So the external ping check will be locked
             ws.is_reconnecting = True
 
-            if ws.forced_close is False:
-                logger.info(
-                    f"#{ws.index} - Reconnecting to Twitch PubSub server in ~60 seconds"
-                )
-                time.sleep(30)
+        # Reconnect only if ws.forced_close is False (replace the keep_running)
+        if ws.forced_close is True:
+            return
 
-                while internet_connection_available() is False:
-                    random_sleep = random.randint(1, 3)
-                    logger.warning(
-                        f"#{ws.index} - No internet connection available! Retry after {random_sleep}m"
-                    )
-                    time.sleep(random_sleep * 60)
+        # The wait before rebuilding is minutes long. Do it on its own thread so
+        # the caller - most importantly the miner's main loop - is not parked.
+        thread_reconnect = Thread(target=WebSocketsPool.__reconnect, args=(ws,))
+        thread_reconnect.daemon = True
+        thread_reconnect.name = f"WebSocket #{ws.index} reconnect"
+        thread_reconnect.start()
 
-                # Why not create a new ws on the same array index? Let's try.
-                self = ws.parent_pool
-                # Create a new connection.
-                self.ws[ws.index] = self.__new(ws.index)
+    @staticmethod
+    def __reconnect(ws):
+        logger.info(
+            f"#{ws.index} - Reconnecting to Twitch PubSub server in ~60 seconds"
+        )
+        time.sleep(30)
 
-                self.__start(ws.index)  # Start a new thread.
-                time.sleep(30)
+        while internet_connection_available() is False:
+            if ws.forced_close is True:
+                return
+            random_sleep = random.randint(1, 3)
+            logger.warning(
+                f"#{ws.index} - No internet connection available! Retry after {random_sleep}m"
+            )
+            time.sleep(random_sleep * 60)
 
-                for topic in ws.topics:
-                    self.__submit(ws.index, topic)
+        # Why not create a new ws on the same array index? Let's try.
+        self = ws.parent_pool
+        with self.reconnect_lock:
+            # end() may have started while this thread was waiting.
+            if ws.forced_close is True:
+                return
+            # Create a new connection.
+            self.ws[ws.index] = self.__new(ws.index)
+
+            self.__start(ws.index)  # Start a new thread.
+
+        time.sleep(30)
+        if ws.forced_close is True:
+            return
+
+        for topic in ws.topics:
+            self.__submit(ws.index, topic)
 
     @staticmethod
     def on_message(ws, message):
@@ -176,16 +218,20 @@ class WebSocketsPool:
 
             # If we have more than one PubSub connection, messages may be duplicated
             # Check the concatenation between message_type.top.channel_id
-            if (
-                ws.last_message_type_channel is not None
-                and ws.last_message_timestamp is not None
-                and ws.last_message_timestamp == message.timestamp
-                and ws.last_message_type_channel == message.identifier
-            ):
-                return
+            # The state lives on the pool, not on the socket: a duplicate arrives
+            # on a *different* connection, and on_message runs on each of them.
+            pool = ws.parent_pool
+            with pool.last_message_lock:
+                if (
+                    pool.last_message_type_channel is not None
+                    and pool.last_message_timestamp is not None
+                    and pool.last_message_timestamp == message.timestamp
+                    and pool.last_message_type_channel == message.identifier
+                ):
+                    return
 
-            ws.last_message_timestamp = message.timestamp
-            ws.last_message_type_channel = message.identifier
+                pool.last_message_timestamp = message.timestamp
+                pool.last_message_type_channel = message.identifier
 
             streamer_index = get_streamer_index(ws.streamers, message.channel_id)
             if streamer_index != -1:
