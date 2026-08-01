@@ -9,11 +9,12 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01, end of session — **#30 and #29 closed** (`ddff42e`, `90797a3`), and
-the fork now publishes its own Docker image, `roopeli/twitch-channel-points-miner-v2` (`b02bef0` +
-`latest`, amd64). #34 filed against it: the image is 1.57 GB. Earlier the same day #10 landed
-(PR #31) and #32, #33 were filed. Nothing in flight; **#13 is next**, or #34 if the image matters
-more — see "Next up".
+**Last updated:** 2026-08-01, end of session — **#34 closed**: the image is **324 MB**, down from
+1.57 GB (`python:3.10-slim-bookworm`, no toolchain, no `apt`). Earlier the same day **#30 and #29
+closed** (`ddff42e`, `90797a3`) and the fork started publishing its own Docker image,
+`roopeli/twitch-channel-points-miner-v2`; #10 landed (PR #31) and #32, #33 were filed. Nothing in
+flight; **#32 is next** (the only open correctness bug that affects a running miner) — see
+"Next up".
 
 ---
 
@@ -45,14 +46,15 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
-| **Docker image** | `b02bef0`, pushed 2026-08-01 | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0`, amd64 only. Built and pushed by hand from this host. |
-| **#32, #33, #34** | filed 2026-08-01 | Open, unscheduled. `submit()` capacity race, container testing, image size. |
+| **Docker image** | `b02bef0` pushed 2026-08-01 (1.57 GB); rebuilt at 324 MB, **not pushed** | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0` on Docker Hub are still the 1.57 GB build. The slim rebuild exists locally only. |
+| **#34** — image was 1.57 GB for 652 kB of code | this session | **Closed 2026-08-01.** 324 MB, 79% smaller. Publishing it and moving builds to CI are still open. |
+| **#32, #33** | filed 2026-08-01 | Open, unscheduled. `submit()` capacity race, container testing. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight. **#13 is next** — see "Next up". All merged branches were deleted on
+Nothing is in flight. **#32 is next** — see "Next up". All merged branches were deleted on
 2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
 
 ### PR #25's two review rounds, and what the second caught
@@ -124,18 +126,22 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #13 (device-code login)**, or **#34** if the Docker image matters more than the fix order.
+**Start #32 (`submit()` overfills a connection during a reconnect)** — it is the only open
+*correctness* item that affects a running miner. After it, #13 (device-code login) and #33.
 
-#13 is next in the original order but is small and low-value here — valid cookies mean the path is
-rarely touched — so batching it with an upstream submission is reasonable. #34 is the one with a
-visible artefact: the published image is 1.57 GB for 652 kB of code, and the issue carries the
-per-layer measurements. #32 (`submit()` capacity race) is the only *correctness* item still open
-that affects a running miner.
+#13 is small and low-value here — valid cookies mean the path is rarely touched — so batching it
+with an upstream submission is reasonable.
 
-**One thing to check first, and it needs a day to pass:** #29 was closed on the argument that
-deleting the two scheduled workflows stops the daily failure mail. Confirm no mail arrived on
-2026-08-02. `gh run list --repo roope242/Twitch-Channel-Points-Miner-v2 --event schedule` should
-return nothing.
+**Two things left over from #34, both needing a decision rather than code:** the Docker Hub tags
+still point at the 1.57 GB build, because republishing `latest` was not done unilaterally; and
+`deploy-docker.yml` stays inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set as repository
+secrets, which only the repo owner can do. Until one of those happens, `latest` is a hand-built
+image from a laptop.
+
+**One thing to check, and it needs a day to pass:** #29 was closed on the argument that deleting
+the two scheduled workflows stops the daily failure mail. Confirm no mail arrived on 2026-08-02.
+`gh run list --repo roope242/Twitch-Channel-Points-Miner-v2 --event schedule` should return
+nothing newer than the two 2026-08-01 failures, which predate the fix.
 
 #30 was done on 2026-08-01 as `ddff42e`, taking option 1 (minimal) from the issue: Python floor,
 both clone URLs, a "This fork" section, the test-suite pointer, and the Docker section. Badges
@@ -183,7 +189,7 @@ user with the defaults.
 | ~~29~~ | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | **Closed** — `90797a3` |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
-| 34 | Docker image is 1.57 GB for 652 kB of code | M | n/a — packaging | Med | Open — filed with the image |
+| ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
@@ -211,16 +217,28 @@ Note the standing constraint: `TwitchWebSocket` implements `listen()` only — t
 `UNLISTEN` — so a topic subscribed during a session still cannot be dropped. That remains the
 blocker for removing streamers mid-session.
 
-### #34 — the Docker image, and how it gets published
+### #34 — the Docker image (closed 2026-08-01)
 
-The fork publishes `roopeli/twitch-channel-points-miner-v2` as of 2026-08-01. First push was
-`b02bef0` and `latest`, amd64 only, digest `sha256:4b69ee5c8aef…`, **built and pushed by hand from
-this host** — so `latest` is whatever someone last ran `podman build` on. Moving that to CI on a tag
-is part of #34.
+**1.57 GB → 324 MB, a 4.85× reduction, measured on `podman images`.** The hypothesis that no
+compiler toolchain was needed held: every requirement resolves to a manylinux/py3 wheel, `millify`
+being the only sdist and pure-Python. The final `Dockerfile` is 14 lines with no `apt-get` at all.
+What went: the fat `python:3.10-bullseye` base (→ `slim-bookworm`), `apt-get upgrade -y` (297 MB),
+the orphan `apt-get update` layer (18.4 MB), `pip install --upgrade pip` (15.5 MB), the entire
+`cryptography`/Rust apparatus for a package that was never installed, the apt-installed
+`python3.9*` interpreters, and `pre-commit` (now in `requirements-dev.txt`, and out of `setup.py`'s
+`install_requires`).
 
-Verified before pushing, inside the container: the package imports, `__version__` is `2.0.7`, and
-the five packaged dashboard assets are present (so the #4 fix is in the image). Not verified: a
-live mining run from the container.
+**The remaining 324 MB is mostly floor:** 132 MB base, then `pandas` 64 MB + `numpy` 67 MB = 131 MB
+of the 191 MB dependency layer. Dropping below ~200 MB means replacing the single
+`import pandas as pd` at `AnalyticsServer.py:10`. Not attempted; still the open question the issue
+raised.
+
+Verified in the built container: `__version__` is `2.0.7`; `pandas`, `flask`, `irc` and `PIL`
+import; the five packaged dashboard assets are present *and* `check_assets()` copies all five out
+at runtime; `pip list` shows none of `pre-commit`/`virtualenv`/`nodeenv`/`cfgv`. The entrypoint was
+run with `run.py` bind-mounted and no cookies: it reached the Twitch device-code prompt, so it dies
+at auth, not on an import. Not verified: a full live mining run from the container, and the image
+was **not** pushed.
 
 Credentials for the push live in `~/.config/containers/auth.json` with
 `REGISTRY_AUTH_FILE` exported from `~/.bashrc.d/podman.sh` — podman's default store is
