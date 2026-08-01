@@ -207,20 +207,19 @@ class WebSocketsPool:
             # end() may have started while this thread was waiting.
             if ws.forced_close is True:
                 return
-            # Create a new connection.
-            self.ws[ws.index] = self.__new(ws.index)
-            replacement = self.ws[ws.index]
-
-            # Seed the topic count before anything else can see this socket.
-            # submit() decides whether to open another connection by reading
-            # len(topics) on the last socket - if the replacement reported 0
-            # until a later replay, a burst of submit() calls in that window
-            # would pile new topics onto a connection that was already full
-            # (issue #32). topics is only ever read for that count; the actual
-            # LISTEN still waits for on_open() to drain pending_topics once the
-            # socket is ready, same as any topic submitted while connecting.
+            # Create a new connection, seeded with the retired socket's topics
+            # and published only once it is seeded. submit() decides whether to
+            # open another connection by reading len(topics) on the last socket,
+            # and it does not take this lock - a replacement that is reachable
+            # while it still reports 0 would collect topics this seeding then
+            # overwrites, losing them for the rest of the session (issue #32).
+            # topics is only ever read for that count; the actual LISTEN waits
+            # for on_open() to drain pending_topics once the socket is ready,
+            # same as any topic submitted while connecting.
+            replacement = self.__new(ws.index)
             replacement.topics = list(ws.topics)
             replacement.pending_topics = list(ws.topics)
+            self.ws[ws.index] = replacement
 
             self.__start(ws.index)  # Start a new thread.
 
