@@ -188,7 +188,7 @@ class WebSocketsPool:
     @staticmethod
     def __reconnect(ws):
         logger.info(
-            f"#{ws.index} - Reconnecting to Twitch PubSub server in ~60 seconds"
+            f"#{ws.index} - Reconnecting to Twitch PubSub server in ~30 seconds"
         )
         time.sleep(30)
 
@@ -207,20 +207,34 @@ class WebSocketsPool:
             # end() may have started while this thread was waiting.
             if ws.forced_close is True:
                 return
-            # Create a new connection.
-            self.ws[ws.index] = self.__new(ws.index)
-            replacement = self.ws[ws.index]
+            # Create a new connection, seeded with the retired socket's topics
+            # and published only once it is seeded. submit() decides whether to
+            # open another connection by reading len(topics) on the last socket,
+            # and it does not take this lock - a replacement that is reachable
+            # while it still reports 0 would collect topics this seeding then
+            # overwrites, losing them for the rest of the session (issue #32).
+            # topics is only ever read for that count; the actual LISTEN waits
+            # for on_open() to drain pending_topics once the socket is ready,
+            # same as any topic submitted while connecting.
+            replacement = self.__new(ws.index)
+            # One snapshot feeding both lists, not two reads of ws.topics: a
+            # topic appended between two reads would be seeded into
+            # pending_topics but not topics, and the sweep below - which checks
+            # topics - would then append it to both, LISTENing it twice.
+            seeded = list(ws.topics)
+            replacement.topics = seeded
+            replacement.pending_topics = list(seeded)
+            self.ws[ws.index] = replacement
+
+            # Until the line above, submit() still resolved to the retired
+            # socket, so a topic could have been appended to ws.topics after
+            # the snapshot was taken. Sweep it up now that every later submit()
+            # reaches the replacement instead: __submit's duplicate guard makes
+            # this a no-op for everything already seeded.
+            for topic in ws.topics:
+                self.__submit(ws.index, topic)
 
             self.__start(ws.index)  # Start a new thread.
-
-        time.sleep(30)
-        # end() marks whatever is in self.ws, so past the rebind above it is the
-        # replacement that carries forced_close - the retired socket never will.
-        if replacement.forced_close is True:
-            return
-
-        for topic in ws.topics:
-            self.__submit(ws.index, topic)
 
     @staticmethod
     def on_message(ws, message):
