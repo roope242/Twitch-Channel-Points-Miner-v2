@@ -1,0 +1,30 @@
+# The image needs only requirements.txt and TwitchChannelPointsMiner/ (see Dockerfile).
+# Named .dockerignore rather than .containerignore so docker and podman both honour it.
+
+# Credentials and runtime state -- never send these to a builder.
+cookies/
+run.py
+logs/
+analytics/
+
+# Local development
+.venv/
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+conftest.py
+
+# Repo documentation and tooling
+*.md
+!README.md
+.coderabbit.yaml
+.pre-commit-config.yaml
+.gitignore
+assets/
+scripts/
+DELETE_PYCACHE.bat
+pickle_view.py
