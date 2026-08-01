@@ -221,6 +221,14 @@ class WebSocketsPool:
             replacement.pending_topics = list(ws.topics)
             self.ws[ws.index] = replacement
 
+            # Until the line above, submit() still resolved to the retired
+            # socket, so a topic could have been appended to ws.topics after
+            # the copies were taken. Sweep it up now that every later submit()
+            # reaches the replacement instead: __submit's duplicate guard makes
+            # this a no-op for everything already seeded.
+            for topic in ws.topics:
+                self.__submit(ws.index, topic)
+
             self.__start(ws.index)  # Start a new thread.
 
     @staticmethod

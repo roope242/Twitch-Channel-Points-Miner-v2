@@ -26,9 +26,11 @@ The four defects, and how each is pinned here:
 Also covers issue #32: `__reconnect` rebuilds the socket at the same array
 index but used to leave its topic list empty until a replay 30s later, and
 `submit()` reads that list's length to decide whether a connection is full.
-`test_reconnect_seeds_the_replacements_topics_before_start` pins the fix -
-seeding the replacement's topics at rebind time, before it is reachable from
-`submit()` at all.
+The fix seeds the replacement, publishes it, then sweeps the retired socket's
+topics through `__submit` to catch anything appended while `submit()` still
+resolved to the old one. Three tests pin it: the seeding, the followers-refresh
+burst that overfilled a connection, and the sweep staying a no-op for topics
+that were already seeded.
 """
 
 import json
@@ -237,8 +239,12 @@ def test_reconnect_seeds_the_replacements_topics_before_start(reconnect_env):
     # The old topics still get a real LISTEN - on_open() drains pending_topics
     # once the socket is ready - they are just no longer queued behind a wait.
     assert replacement.pending_topics == old_topics
-    # There is no replay loop left to call __submit for these.
-    assert calls["submit"] == 0
+    # The sweep that catches topics submitted onto the retired socket during
+    # the rebind still visits every one of them. __submit is faked here, so
+    # this only pins that the sweep runs - that it is a no-op against the real
+    # duplicate guard is what test_the_sweep_does_not_duplicate_seeded_topics
+    # covers.
+    assert calls["submit"] == 48
 
 
 def test_submit_burst_during_reconnect_does_not_overflow_a_connection(monkeypatch):
@@ -273,6 +279,33 @@ def test_submit_burst_during_reconnect_does_not_overflow_a_connection(monkeypatc
 
     assert len(pool.ws) == 2
     assert all(len(socket.topics) <= 50 for socket in pool.ws)
+
+
+def test_the_sweep_does_not_duplicate_seeded_topics(monkeypatch):
+    # The rebind sweeps the retired socket's topics through __submit to catch
+    # anything appended after the seed copies were taken. Everything already
+    # seeded must fall out on __submit's duplicate guard, or every reconnect
+    # would double the connection's topic count and LISTEN each one twice.
+    monkeypatch.setattr(pool_module, "internet_connection_available", lambda: True)
+    monkeypatch.setattr(pool_module, "time", fake_time(lambda seconds: None))
+    monkeypatch.setattr(
+        WebSocketsPool, "_WebSocketsPool__start", lambda self, index: None
+    )
+
+    pool = WebSocketsPool(twitch=None, streamers=[], events_predictions={})
+    ws = add_socket(pool)
+    old_topics = [
+        PubsubTopic("video-playback-by-id", streamer=make_streamer(i))
+        for i in range(48)
+    ]
+    ws.topics.extend(old_topics)
+
+    WebSocketsPool.handle_reconnection(ws)
+    join_reconnect_threads()
+
+    replacement = pool.ws[0]
+    assert replacement.topics == old_topics
+    assert replacement.pending_topics == old_topics
 
 
 def claim_available_message(channel_id="123", timestamp="2026-08-01T12:00:00Z"):
