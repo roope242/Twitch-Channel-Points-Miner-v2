@@ -9,8 +9,9 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01, end of session — #21 and #27 landed, review moved to a local
-fresh-context agent, merged branches cleaned up. Nothing in flight; start with #10.
+**Last updated:** 2026-08-01, end of session — **#10 landed** (PR #31). Four new issues filed:
+#29 (inherited workflows fail daily), #30 (README is upstream's), #32 (`submit()` capacity race,
+split out of #31's review), #33 (run the suite in a container). Nothing in flight; start with #13.
 
 ---
 
@@ -38,13 +39,15 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `18e94e7` | Clean, pushed, CI green. Only branch in the repo. |
+| `master` | `6d98a16` | Clean, pushed, CI green. Only branch in the repo. |
+| **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
+| **#29, #30, #32, #33** | filed 2026-08-01 | Open, unscheduled. Workflows, README, `submit()` capacity race, container testing. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight. **#10 is next** — see "Next up". All merged branches were deleted on
+Nothing is in flight. **#13 is next** — see "Next up". All merged branches were deleted on
 2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
 
 ### PR #25's two review rounds, and what the second caught
@@ -116,8 +119,11 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #10 (PubSub reconnection).** #21 and #27 both landed on 2026-08-01; nothing is open.
-There is now a suite and a CI gate, so a delegated concurrency rewrite has something to fail against.
+**Start #13 (device-code login).** #10 landed on 2026-08-01 as PR #31, so the largest item is
+gone. #13 is small and low-value here — valid cookies mean the path is rarely touched — so the
+honest alternative is skipping it and taking **#29** (the inherited workflows failing daily,
+which sends a mail every morning) or **#30** (the README, which still tells readers this fork
+needs Python 3.6 and to clone upstream). Both are cheap and both are visible.
 
 Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
 client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
@@ -155,7 +161,11 @@ user with the defaults.
 | ~~27~~ | No test suite; verification harnesses are thrown away | S–M | n/a — tooling | n/a | **Closed** — PR #28, `b6736a0` |
 | ~~23~~ | `.coderabbit.yaml` output is mostly packaging | XS | n/a — tooling | n/a | **Closed** — `f257f02` |
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
-| 10 | PubSub reconnection blocks main loop, races itself | L | High | High | Open |
+| ~~10~~ | PubSub reconnection blocks main loop, races itself | L | High | High | **Closed** — PR #31, `6d98a16` |
+| 32 | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | Open — split out of #31's review |
+| 29 | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | Open — a failure mail every morning |
+| 30 | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | Open |
+| 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
 | 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
@@ -170,21 +180,26 @@ things to fix here.
 
 ## Remaining work
 
-### #10 — PubSub reconnection
+### #32 — `submit()` overfills a connection during a reconnect
 
-Highest absolute value left, and the largest. Two distinct problems: reconnection runs
-synchronously on the main loop and parks the whole daemon, and the `is_reconnecting` guard is a
-non-atomic check-then-act reached from four threads.
+Fell out of #31's review. `submit()` sizes the last connection from `len(self.ws[-1].topics)`, but
+`__reconnect` rebinds that index to an empty socket and only replays the topics 30 seconds later,
+so a followers refresh landing in that window piles new topics onto a connection that is about to
+get its original ~50 back. Excess `LISTEN`s are rejected and never retried, so those streamers go
+dark for the session. Mostly pre-existing — unparking the main loop in #10 removed one of the two
+things that were accidentally hiding it.
 
-This is the one item that clearly warrants delegating the implementation and reviewing the diff —
-multi-file, concurrency-critical, more than one defensible design. Read the threading rules in
-`CLAUDE.md` first and put them in the task prompt: `self.streamers` is mutated only from the main
-thread, `self.streamers`/`self.original_streamers` are index-parallel, and the list is passed by
-reference into every `TwitchWebSocket` so it must never be rebound.
+Note the standing constraint: `TwitchWebSocket` implements `listen()` only — there is no
+`UNLISTEN` — so a topic subscribed during a session still cannot be dropped. That remains the
+blocker for removing streamers mid-session.
 
-Related constraint from `CLAUDE.md`: `TwitchWebSocket` implements `listen()` only — there is no
-`UNLISTEN` — so a topic subscribed during a session cannot be dropped. That is the blocker for
-removing streamers mid-session and it bounds what #10 can achieve.
+### #29, #30, #33 — inherited from upstream, never reviewed for this fork
+
+Filed 2026-08-01 after the daily failure mails made #29 visible. All three are the same shape:
+material that came over from `rdavydov/...` and was never read as *this* repo's. #29 is the
+cheapest thing on this list and stops a mail every morning; #30 is the one a stranger actually
+sees. #33 is the bigger one — nothing currently tests Python 3.10, which is what the published
+Docker image runs.
 
 ### #13 — device-code login
 
@@ -208,6 +223,36 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #10 — PubSub reconnection (PR #31, `6d98a16`)
+
+The wait and rebuild moved to a daemon thread so `handle_reconnection` returns immediately; the
+`is_reconnecting` claim is atomic under a pool-level lock that also covers the `self.ws[index]`
+rebind; duplicate detection moved to a bounded window on the pool; `PubsubTopic` compares by value
+and `__submit` returns early rather than re-`LISTEN`-ing.
+
+Delegated to a subagent and reviewed twice by `pr-reviewer`. Four things worth carrying forward:
+
+- **Moving shared state "up" a level can make it strictly weaker.** Hoisting the duplicate-message
+  slot from the socket to the pool fixed the cross-connection case the comment described — and
+  broke the same-connection case the code could actually catch, because with two connections the
+  other one's traffic overwrites the slot between a message and its copy. A single slot was the
+  wrong shape at either level; it is a 20-entry deque now. The reviewer *observed* it
+  (`counter: 2, amount: 20` vs `counter: 1`) rather than arguing it.
+- **A guard that records is not a guard that prevents.** `PubsubTopic.__eq__` was credited with
+  stopping a duplicate `LISTEN`, but `if topic not in topics:` only gated the append — `listen()`
+  ran underneath it regardless. `topics: 1, LISTENs: 2`. Check what the guard actually guards.
+- **Rebinding an object into a shared array orphans every reference to the old one.**
+  `__reconnect`'s post-rebind `forced_close` check read the retired socket, which `end()` can no
+  longer reach, so a shutdown in that 30s window replayed topics into a just-closed connection.
+- **`git add -A` after a live run is a trap in this repo.** `check_assets()` copies five packaged
+  dashboard files into the working-directory `assets/` on every start, and they went into the
+  commit. `.gitignore` names them now. The live run that made this repo's verification stronger is
+  the same run that dirtied the tree.
+
+Live verification is what proved the `__submit` early return safe: 75 topics, each `LISTEN`-ed
+exactly once, in `logs/roope242.log`. Not verified: no live reconnection or live duplicate message
+occurred in either run, so those paths are proven against stubs.
 
 ### #27 — a test suite and CI (PR #28, `b6736a0`)
 
@@ -449,8 +494,9 @@ works from a checkout regardless of packaging.
 
 ## Verification reality
 
-There is no test suite. `python3 -m py_compile` is the floor, not the bar — see the #14 entry
-above for why it proves nothing.
+There is a test suite since #27 (`python -m pytest tests/ -q`, `cd tests/js && node --test`), and
+it is where new verification belongs. `python3 -m py_compile` is the floor, not the bar — see the
+#14 entry above for why it proves nothing.
 
 What actually works, in rough order of strength:
 
