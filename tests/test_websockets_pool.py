@@ -22,6 +22,13 @@ The four defects, and how each is pinned here:
   overwritten by the time the copy shows up.
 - `PubsubTopic` had no `__eq__`, so `topic not in ws.topics` was an identity
   check and a re-added streamer got its topic listened to twice.
+
+Also covers issue #32: `__reconnect` rebuilds the socket at the same array
+index but used to leave its topic list empty until a replay 30s later, and
+`submit()` reads that list's length to decide whether a connection is full.
+`test_reconnect_seeds_the_replacements_topics_before_start` pins the fix -
+seeding the replacement's topics at rebind time, before it is reachable from
+`submit()` at all.
 """
 
 import json
@@ -205,28 +212,67 @@ def test_forced_close_during_the_wait_cancels_the_rebuild(reconnect_env, monkeyp
     assert pool.ws[0] is ws
 
 
-def test_shutdown_after_the_rebind_stops_the_topic_replay(reconnect_env, monkeypatch):
-    # end() sets forced_close on whatever is in self.ws, so once the rebind has
-    # happened it marks the *replacement*. Reading the retired socket's flag
-    # would miss the shutdown and replay every topic into a closed connection.
+def test_reconnect_seeds_the_replacements_topics_before_start(reconnect_env):
+    # issue #32: submit() decides whether to open another connection by reading
+    # len(topics) on the *last* socket. The replacement used to report 0 until a
+    # replay 30s later, so a burst of submit() calls in that window could pile
+    # new topics onto a connection that already carried up to 49 - past
+    # Twitch's 50-topic limit once the delayed replay added the old ones back.
     pool, calls = reconnect_env
     ws = add_socket(pool)
-    ws.topics.append(PubsubTopic("video-playback-by-id", streamer=make_streamer(123)))
-
-    sleeps = {"count": 0}
-
-    def sleep_then_shut_down(seconds):
-        sleeps["count"] += 1
-        if sleeps["count"] == 2:  # the wait after the socket was rebuilt
-            pool.ws[0].forced_close = True  # what WebSocketsPool.end() does now
-
-    monkeypatch.setattr(pool_module, "time", fake_time(sleep_then_shut_down))
+    old_topics = [
+        PubsubTopic("video-playback-by-id", streamer=make_streamer(i))
+        for i in range(48)
+    ]
+    ws.topics.extend(old_topics)
 
     WebSocketsPool.handle_reconnection(ws)
     join_reconnect_threads()
 
-    assert calls["new"] == 1
+    replacement = pool.ws[0]
+    assert replacement is not ws
+    # submit()'s capacity check must see the real count immediately, not only
+    # after some delayed replay.
+    assert len(replacement.topics) == 48
+    # The old topics still get a real LISTEN - on_open() drains pending_topics
+    # once the socket is ready - they are just no longer queued behind a wait.
+    assert replacement.pending_topics == old_topics
+    # There is no replay loop left to call __submit for these.
     assert calls["submit"] == 0
+
+
+def test_submit_burst_during_reconnect_does_not_overflow_a_connection(monkeypatch):
+    # issue #32, end to end: the followers-refresh burst that actually broke.
+    # __new and __submit run for real here (unlike reconnect_env) so submit()
+    # exercises its actual capacity check - only __start is faked, to keep the
+    # rebuilt socket from trying to open a real network connection.
+    monkeypatch.setattr(pool_module, "internet_connection_available", lambda: True)
+    monkeypatch.setattr(pool_module, "time", fake_time(lambda seconds: None))
+
+    pool = WebSocketsPool(twitch=None, streamers=[], events_predictions={})
+    ws = add_socket(pool)
+    for i in range(48):
+        ws.topics.append(PubsubTopic("video-playback-by-id", streamer=make_streamer(i)))
+
+    starts = {"count": 0}
+
+    def fake_start(self, index):
+        starts["count"] += 1
+        if starts["count"] > 1:
+            return  # a connection submit() opened during the burst itself
+        # __start is the last call under reconnect_lock, right after the
+        # rebind - in the fixed code, right after the seeding too. Firing the
+        # burst here lands it exactly in the window the bug lived in.
+        for i in range(1000, 1012):
+            self.submit(PubsubTopic("video-playback-by-id", streamer=make_streamer(i)))
+
+    monkeypatch.setattr(WebSocketsPool, "_WebSocketsPool__start", fake_start)
+
+    WebSocketsPool.handle_reconnection(ws)
+    join_reconnect_threads()
+
+    assert len(pool.ws) == 2
+    assert all(len(socket.topics) <= 50 for socket in pool.ws)
 
 
 def claim_available_message(channel_id="123", timestamp="2026-08-01T12:00:00Z"):

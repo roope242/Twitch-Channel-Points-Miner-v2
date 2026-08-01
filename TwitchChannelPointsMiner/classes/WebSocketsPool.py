@@ -188,7 +188,7 @@ class WebSocketsPool:
     @staticmethod
     def __reconnect(ws):
         logger.info(
-            f"#{ws.index} - Reconnecting to Twitch PubSub server in ~60 seconds"
+            f"#{ws.index} - Reconnecting to Twitch PubSub server in ~30 seconds"
         )
         time.sleep(30)
 
@@ -211,16 +211,18 @@ class WebSocketsPool:
             self.ws[ws.index] = self.__new(ws.index)
             replacement = self.ws[ws.index]
 
+            # Seed the topic count before anything else can see this socket.
+            # submit() decides whether to open another connection by reading
+            # len(topics) on the last socket - if the replacement reported 0
+            # until a later replay, a burst of submit() calls in that window
+            # would pile new topics onto a connection that was already full
+            # (issue #32). topics is only ever read for that count; the actual
+            # LISTEN still waits for on_open() to drain pending_topics once the
+            # socket is ready, same as any topic submitted while connecting.
+            replacement.topics = list(ws.topics)
+            replacement.pending_topics = list(ws.topics)
+
             self.__start(ws.index)  # Start a new thread.
-
-        time.sleep(30)
-        # end() marks whatever is in self.ws, so past the rebind above it is the
-        # replacement that carries forced_close - the retired socket never will.
-        if replacement.forced_close is True:
-            return
-
-        for topic in ws.topics:
-            self.__submit(ws.index, topic)
 
     @staticmethod
     def on_message(ws, message):
