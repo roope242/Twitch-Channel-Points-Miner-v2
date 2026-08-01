@@ -9,12 +9,10 @@
 </p>
 
 <p align="center">
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Version" src="https://img.shields.io/docker/v/rdavidoff/twitch-channel-points-miner-v2?style=flat&color=white&logo=docker&logoColor=white&label=release"></a>
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Stars" src="https://img.shields.io/docker/stars/rdavidoff/twitch-channel-points-miner-v2?style=flat&color=limegreen&logo=docker&logoColor=white&label=stars"></a>
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/rdavidoff/twitch-channel-points-miner-v2?style=flat&color=blue&logo=docker&logoColor=white&label=pulls"></a>
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Images Size AMD64" src="https://img.shields.io/docker/image-size/rdavidoff/twitch-channel-points-miner-v2/latest?arch=amd64&label=AMD64 image size&style=flat&color=purple&logo=amd&logoColor=white"></a>
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Images Size ARM64" src="https://img.shields.io/docker/image-size/rdavidoff/twitch-channel-points-miner-v2/latest?arch=arm64&label=ARM64 image size&style=flat&color=black&logo=arm&logoColor=white"></a>
-<a href="https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2"><img alt="Docker Images Size ARMv7" src="https://img.shields.io/docker/image-size/rdavidoff/twitch-channel-points-miner-v2/latest?arch=arm&label=ARMv7 image size&style=flat&color=lightyellow&logo=arm&logoColor=white"></a>
+<a href="https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2"><img alt="Docker Version" src="https://img.shields.io/docker/v/roopeli/twitch-channel-points-miner-v2?style=flat&color=white&logo=docker&logoColor=white&label=release"></a>
+<a href="https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2"><img alt="Docker Stars" src="https://img.shields.io/docker/stars/roopeli/twitch-channel-points-miner-v2?style=flat&color=limegreen&logo=docker&logoColor=white&label=stars"></a>
+<a href="https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/roopeli/twitch-channel-points-miner-v2?style=flat&color=blue&logo=docker&logoColor=white&label=pulls"></a>
+<a href="https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2"><img alt="Docker Images Size AMD64" src="https://img.shields.io/docker/image-size/roopeli/twitch-channel-points-miner-v2/latest?arch=amd64&label=AMD64 image size&style=flat&color=purple&logo=amd&logoColor=white"></a>
 </p>
 
 
@@ -76,7 +74,7 @@ If you have any issues or you want to contribute, you are welcome! But please re
 
 ## This fork
 
-This is [roope242/Twitch-Channel-Points-Miner-v2](https://github.com/roope242/Twitch-Channel-Points-Miner-v2), a fork of [rdavydov/Twitch-Channel-Points-Miner-v2](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2). The badges, credits and donation links above deliberately still point at upstream — this fork adds fixes, not a new project.
+This is [roope242/Twitch-Channel-Points-Miner-v2](https://github.com/roope242/Twitch-Channel-Points-Miner-v2), a fork of [rdavydov/Twitch-Channel-Points-Miner-v2](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2). The GitHub badges, credits and donation links above deliberately still point at upstream — this fork adds fixes, not a new project. The Docker badges are this fork's own image, [`roopeli/twitch-channel-points-miner-v2`](https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2).
 
 Fixes that landed here and are **not** in upstream:
 
@@ -381,9 +379,11 @@ cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
 ### Docker
 
 #### Docker Hub
-Official Docker images are on https://hub.docker.com/r/rdavidoff/twitch-channel-points-miner-v2 for `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
+Images for this fork are on https://hub.docker.com/r/roopeli/twitch-channel-points-miner-v2, for `linux/amd64`. If you need `arm64` or `arm/v7`, build from this repository — the `Dockerfile` supports them, they are just not published here.
 
-> **Note:** those images are built from upstream and do **not** contain [this fork's fixes](#this-fork). To run the fork in Docker, build the image from this repository: `docker build -t twitch-miner .`, then use `twitch-miner` in place of `rdavidoff/twitch-channel-points-miner-v2` in the examples below.
+> **Note:** upstream's images (`rdavidoff/twitch-channel-points-miner-v2`) do **not** contain [this fork's fixes](#this-fork). Use `roopeli/...` for this repository, or build it yourself with `docker build -t twitch-miner .`.
+
+`podman` is a drop-in replacement for `docker` in every command below, and `podman-compose` for `docker compose`.
 
 The following file is mounted :
 
@@ -402,7 +402,7 @@ version: "3.9"
 
 services:
   miner:
-    image: rdavidoff/twitch-channel-points-miner-v2
+    image: roopeli/twitch-channel-points-miner-v2
     stdin_open: true
     tty: true
     environment:
@@ -424,12 +424,12 @@ docker run \
     -v $(pwd)/logs:/usr/src/app/logs \
     -v $(pwd)/run.py:/usr/src/app/run.py:ro \
     -p 5000:5000 \
-    rdavidoff/twitch-channel-points-miner-v2
+    roopeli/twitch-channel-points-miner-v2
 ```
 
 `$(pwd)` Could not work on Windows (cmd), please use the absolute path instead, like: `/path/of/your/cookies:/usr/src/app/cookies`.
 
-The correct solution for Windows lies in the correct command line: `docker run -v C:\Absolute\Path\To\Twitch-Channel-Points-Miner-v2\run.py:/usr/src/app/run.py:ro rdavidoff/twitch-channel-points-miner-v2`.
+The correct solution for Windows lies in the correct command line: `docker run -v C:\Absolute\Path\To\Twitch-Channel-Points-Miner-v2\run.py:/usr/src/app/run.py:ro roopeli/twitch-channel-points-miner-v2`.
 
 `run.py` MUST be mounted as a volume (`-v`).
 
@@ -438,11 +438,11 @@ If you don't mount the volume for the analytics (or cookies or logs) folder, the
 If you don't have a cookie or it's your first time running the script, you will need to login to Twitch and start the container with `-it` args. If you need to run multiple containers you can bind different ports (only if you need also the analytics) and mount dirrent run.py file, like
 
 ```sh
-docker run --name user1 -v $(pwd)/user1.py:/usr/src/app/run.py:ro -p 5001:5000 rdavidoff/twitch-channel-points-miner-v2
+docker run --name user1 -v $(pwd)/user1.py:/usr/src/app/run.py:ro -p 5001:5000 roopeli/twitch-channel-points-miner-v2
 ```
 
 ```sh
-docker run --name user2 -v $(pwd)/user2.py:/usr/src/app/run.py:ro -p 5002:5000 rdavidoff/twitch-channel-points-miner-v2
+docker run --name user2 -v $(pwd)/user2.py:/usr/src/app/run.py:ro -p 5002:5000 roopeli/twitch-channel-points-miner-v2
 ```
 
 #### Portainer
