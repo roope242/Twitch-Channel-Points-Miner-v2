@@ -9,10 +9,11 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-01 — **#30 closed** (`ddff42e`), and the fork now publishes its own Docker
-image, `roopeli/twitch-channel-points-miner-v2` (`b02bef0` + `latest`, amd64). #34 filed against it:
-the image is 1.57 GB. Earlier the same day #10 landed (PR #31) and #29, #32, #33 were filed. Nothing
-in flight; **#29 is next** — cheapest open item, and it stops a failure mail every morning.
+**Last updated:** 2026-08-01, end of session — **#30 and #29 closed** (`ddff42e`, `90797a3`), and
+the fork now publishes its own Docker image, `roopeli/twitch-channel-points-miner-v2` (`b02bef0` +
+`latest`, amd64). #34 filed against it: the image is 1.57 GB. Earlier the same day #10 landed
+(PR #31) and #32, #33 were filed. Nothing in flight; **#13 is next**, or #34 if the image matters
+more — see "Next up".
 
 ---
 
@@ -40,11 +41,12 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `ddff42e` | Clean, pushed. Only branch in the repo. |
+| `master` | `90797a3` | Clean, pushed. Only branch in the repo. |
+| **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
 | **Docker image** | `b02bef0`, pushed 2026-08-01 | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0`, amd64 only. Built and pushed by hand from this host. |
-| **#29, #32, #33, #34** | filed 2026-08-01 | Open, unscheduled. Workflows, `submit()` capacity race, container testing, image size. |
+| **#32, #33, #34** | filed 2026-08-01 | Open, unscheduled. `submit()` capacity race, container testing, image size. |
 | **PR #28** — issue #27, tests + CI | merge commit `b6736a0` | **Merged 2026-08-01.** Two review rounds; CI green on 3.9, 3.13 and node. |
 | **PR #25** — issue #21, dashboard JS | merge commit `51591fc` | **Merged 2026-08-01.** Two review rounds, 20/20 jsdom assertions. |
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
@@ -122,16 +124,23 @@ to a real Discord webhook.
 
 ## Next up
 
-**Start #29 (the inherited badge workflows failing daily).** It is the cheapest thing open and it
-stops a failure mail every morning. After that, **#13** (device-code login) is next in the fix
-order, though it is small and low-value here — valid cookies mean the path is rarely touched — so
-batching it with an upstream submission is reasonable.
+**Start #13 (device-code login)**, or **#34** if the Docker image matters more than the fix order.
+
+#13 is next in the original order but is small and low-value here — valid cookies mean the path is
+rarely touched — so batching it with an upstream submission is reasonable. #34 is the one with a
+visible artefact: the published image is 1.57 GB for 652 kB of code, and the issue carries the
+per-layer measurements. #32 (`submit()` capacity race) is the only *correctness* item still open
+that affects a running miner.
+
+**One thing to check first, and it needs a day to pass:** #29 was closed on the argument that
+deleting the two scheduled workflows stops the daily failure mail. Confirm no mail arrived on
+2026-08-02. `gh run list --repo roope242/Twitch-Channel-Points-Miner-v2 --event schedule` should
+return nothing.
 
 #30 was done on 2026-08-01 as `ddff42e`, taking option 1 (minimal) from the issue: Python floor,
-both clone URLs, a "This fork" section, the test-suite pointer, and a note that the Docker Hub
-images are upstream builds. Badges, credits and donation links deliberately still point upstream,
-so an upstream README merge stays clean. Both documented test commands were run as written; the
-`docker build` line in the new Docker note was not executed.
+both clone URLs, a "This fork" section, the test-suite pointer, and the Docker section. Badges
+other than Docker, plus credits and donation links, deliberately still point upstream, so an
+upstream README merge stays clean. Both documented test commands were run as written.
 
 Deliberately *not* in #21: `getAllStreamersData()` is uncalled but is the only
 client of the live `/json_all` route (`AnalyticsServer.py:157`, registered at `:311`). Deleting it
@@ -171,7 +180,7 @@ user with the defaults.
 | 24 | Package is not uniformly black-formatted | S | **Zero** | **Zero** | Open — unscheduled |
 | ~~10~~ | PubSub reconnection blocks main loop, races itself | L | High | High | **Closed** — PR #31, `6d98a16` |
 | 32 | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | Open — split out of #31's review |
-| 29 | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | Open — a failure mail every morning |
+| ~~29~~ | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | **Closed** — `90797a3` |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
 | 34 | Docker image is 1.57 GB for 652 kB of code | M | n/a — packaging | Med | Open — filed with the image |
@@ -221,12 +230,22 @@ Credentials for the push live in `~/.config/containers/auth.json` with
 `.dockerignore` (`5365fc3`) exists because the build context was 293 MB and included `cookies/` and
 `run.py`. Nothing reached the image, but a future `COPY . .` would have leaked the session.
 
-### #29, #33 — inherited from upstream, never reviewed for this fork
+### #33 — inherited from upstream, never reviewed for this fork
 
-Filed 2026-08-01 after the daily failure mails made #29 visible. Both are the same shape as #30 and
-#34: material that came over from `rdavydov/...` and was never read as *this* repo's. #29 is the
-cheapest thing on this list and stops a mail every morning. #33 is the bigger one — nothing
-currently tests Python 3.10, which is what the published Docker image runs.
+Same shape as #29, #30 and #34: material that came over from `rdavydov/...` and was never read as
+*this* repo's. Nothing currently tests Python 3.10, which is what the published Docker image runs.
+
+**#29 closed 2026-08-01 (`90797a3`).** Both badge workflows deleted, with `CLONE.md` and
+`TRAFFIC.md`. They failed daily because `SECRET_TOKEN` is unset here, so `gh auth login
+--with-token` got an empty token and fell into the interactive device-code flow — 15 minutes of a
+runner waiting for a code nobody can type. They also curl'd and executed a third party's script on
+a runner holding a PAT. No scheduled workflow remains.
+
+`deploy-docker.yml` was kept rather than deleted, because the fork now publishes an image: it
+points at `roopeli/...`, builds `linux/amd64` only, and the QEMU step went with the ARM legs. It is
+inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set on the repository. It tags `latest`
+unconditionally, so a `workflow_dispatch` from any branch would republish `latest` — inherited
+behaviour, deliberately left.
 
 ### #13 — device-code login
 
