@@ -65,7 +65,7 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `1f2480c` | Clean. Only branch in the repo. Two docs-only commits ahead of `888c375`; **not yet pushed**. |
+| `master` | `b2b0d33` | Clean, pushed. Only branch in the repo. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
