@@ -9,12 +9,7 @@ workflow. Update its "Start here" and "In flight" sections before a session ends
 **Code review is a fresh-context agent, not a service.** After pushing a branch and opening the
 PR, spawn the `pr-reviewer` agent (`.claude/agents/pr-reviewer.md`) on the pushed head. It derives
 the diff itself, reads this file for the project's traps, and must give every finding a concrete
-failure scenario. Its findings are claims — verify each against the code before fixing, exactly as
-with any reviewer. Details and rationale: `ISSUES.md` "Standing workflow".
-
-The empty context is the point, not the model tier. Handing the reviewer the implementing
-session's reasoning re-creates the blind spot that produced the bug, so tell it the base and head
-and nothing about why the change is right.
+failure scenario. Details and rationale: `ISSUES.md` "Standing workflow".
 
 CodeRabbit's automatic PR reviews are **off** (`.coderabbit.yaml`, 2026-08-01); the GitHub App
 stays installed for `@coderabbitai review` on a PR big enough to earn a third opinion. Detect its
@@ -47,10 +42,9 @@ Both run in CI on every PR and every push to `master` (`.github/workflows/tests.
 and 3.13). **Add to these rather than rebuilding a throwaway harness** — the jsdom suite was
 rewritten from scratch three times before it was committed, each time re-learning the same traps.
 
-**Run the exact command CI runs.** The suite passed locally under `python -m pytest` while CI's
-`pytest tests/ -v` collected nothing — the console script omits the repo root from `sys.path`.
-And check a new suite has *teeth*: point it at the pre-fix revision and confirm it fails (the
-jsdom suite scores 9/21 against pre-#21 `script.js`). A suite that only ever passes proves nothing.
+CI runs `pytest tests/ -v`. The suite once passed locally under `python -m pytest` while CI
+collected nothing — the console script omits the repo root from `sys.path`. For the teeth check,
+the jsdom suite scores 9/21 against pre-#21 `script.js`.
 
 The package is a library; users write their own entry script:
 
@@ -67,7 +61,7 @@ the signal handlers and anything in `utils.py` for real. **It is not offline, th
 loops `while not is_connected()` on `socket.gethostbyname("twitch.tv")` forever, 5s at a time, so
 with no DNS it never returns. Patch the resolver — see the `offline_construction` fixture in
 `tests/test_miner_lifecycle.py`. `__slots__` blocks monkeypatching methods on it
-(`AttributeError: … is read-only`), so drive it through real calls rather than stubs. Do this:
+(`AttributeError: … is read-only`), so drive it through real calls rather than stubs —
 `py_compile` and a bare `import` both passed on an `end()` that crashed on the first line it
 reached.
 
@@ -95,9 +89,8 @@ bleed across test cases.
 **A live run is the strongest verification available, and it is usually available. Use it.**
 Check for the cookie file first — `ls cookies/*.pkl` — and if one exists, finish any change that
 touches the running flow (login, PubSub, the main loop, GQL calls, the dashboard server) with a
-real run rather than stopping at the offline suite. Say in the PR body whether the change was
-exercised live; if the cookie file is missing or the run was skipped, say *that* instead of
-implying coverage the change never got.
+real run rather than stopping at the offline suite. State in the PR body whether the change was
+exercised live.
 
 **Run it in the container, not the host venv** — that is what ships and what the user runs.
 `run.py` is configured and `cookies/roope242.pkl` skips the device-code step:
@@ -246,8 +239,7 @@ rebound or shrunk. That is what lets `__reconnect` repair the pool by index afte
 replacement.
 
 The whole dispatch sits inside one `except Exception` that only logs. A typo or a call to a
-method that doesn't exist surfaces as a single error line and nothing else — read this
-handler skeptically and don't trust "no crash" as evidence a branch works.
+method that doesn't exist surfaces as a single error line and nothing else.
 
 ### Settings
 
