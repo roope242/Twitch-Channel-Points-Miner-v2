@@ -9,12 +9,20 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-02 — docs only, no code touched (`3264c6d`, straight to `master` at the
-user's call). Rules that were general rather than fork-specific moved from `CLAUDE.md` to the
-user's global instructions: static checks are not verification, a new test must be shown failing
-against the pre-fix revision, invoke tests the way CI does, never imply coverage a change did not
-get, and give a reviewer the base and head with none of the implementing session's reasoning.
-`CLAUDE.md` keeps the evidence for each. Nothing in flight; **#13 is still next**.
+**Last updated:** 2026-08-02 — docs only, no code touched (`1f2480c`, straight to `master` at the
+user's call). Second half of the same split: the `pr-reviewer` agent left this repo for
+`~/.claude/agents/`, rewritten to be generic, and the global instructions now require a
+fresh-context review on **every** PR in any repo rather than only this one. The agent had been
+carrying fork knowledge — an offline construction recipe for this miner, a stale jsdom
+`node_modules` path, and a "there is no test suite here" line false since #27 — so it discovers
+the repo's docs and test tooling now instead of hardcoding them. **Project knowledge belongs in
+`CLAUDE.md`, not in the agent.** Nothing in flight; **#13 is still next**.
+
+Earlier the same day (`3264c6d`), rules that were general rather than fork-specific moved from
+`CLAUDE.md` to the user's global instructions: static checks are not verification, a new test must
+be shown failing against the pre-fix revision, invoke tests the way CI does, never imply coverage a
+change did not get, and give a reviewer the base and head with none of the implementing session's
+reasoning. `CLAUDE.md` keeps the evidence for each.
 
 Previously, 2026-08-01, end of session — **#34 closed**: the image is **324 MB**, down from
 1.57 GB (`python:3.10-slim-bookworm`, no toolchain, no `apt`). Earlier the same day **#30 and #29
@@ -57,7 +65,7 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `888c375` | Clean, pushed. Only branch in the repo. |
+| `master` | `1f2480c` | Clean. Only branch in the repo. Two docs-only commits ahead of `888c375`; **not yet pushed**. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
