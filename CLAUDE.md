@@ -7,9 +7,11 @@ at which commit, what to do next and why, what every closed issue taught, and th
 workflow. Update its "Start here" and "In flight" sections before a session ends.
 
 **Code review is a fresh-context agent, not a service.** After pushing a branch and opening the
-PR, spawn the `pr-reviewer` agent (`.claude/agents/pr-reviewer.md`) on the pushed head. It derives
-the diff itself, reads this file for the project's traps, and must give every finding a concrete
-failure scenario. Details and rationale: `ISSUES.md` "Standing workflow".
+PR, spawn the `pr-reviewer` agent on the pushed head. It lives in the global agent directory
+(`~/.claude/agents/pr-reviewer.md`) and carries no project knowledge of its own — it reads *this*
+file for the traps, so anything a reviewer needs to know about this repo belongs here rather than
+in the agent. Every finding must come with a concrete failure scenario. Details and rationale:
+`ISSUES.md` "Standing workflow".
 
 CodeRabbit's automatic PR reviews are **off** (`.coderabbit.yaml`, 2026-08-01); the GitHub App
 stays installed for `@coderabbitai review` on a PR big enough to earn a third opinion. Detect its

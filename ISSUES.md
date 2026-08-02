@@ -541,7 +541,7 @@ works from a checkout regardless of packaging.
 
 - **Every code fix goes through a PR, and the review is a fresh-context agent.** Branch off
   `master`, commit, push, `gh pr create` against `roope242/master`. Then spawn the `pr-reviewer`
-  agent (`.claude/agents/pr-reviewer.md`, flagship model, read-only) on the pushed head. Verify its
+  agent (`~/.claude/agents/pr-reviewer.md`, flagship model, read-only) on the pushed head. Verify its
   findings against the code — they are claims, like any reviewer's — fix what is real, re-review,
   then merge without waiting for sign-off.
 
@@ -550,10 +550,16 @@ works from a checkout regardless of packaging.
   reviewer primed with the author's reasoning re-derives the author's blind spot. The agent
   definition says the task prompt is not evidence — do not undercut that from the prompt side.
 
-  Adding or editing `.claude/agents/*.md` does **not** register it in the running session:
-  `subagent_type: pr-reviewer` fails with "Agent type not found" until Claude Code reloads. Until
-  then, spawn the generic agent and point it at the file as its operating instructions — same
-  model, same result.
+  The agent moved out of this repo to `~/.claude/agents/` on 2026-08-02 — it is now generic (finds
+  the diff from a base/head, a PR number or a working tree; discovers the repo's docs and test
+  tooling instead of hardcoding this project's) and applies to every PR in every repo. **Project
+  knowledge lives in `CLAUDE.md`, not in the agent** — that is the split; do not push repo-specific
+  verification tricks back into the agent file.
+
+  Adding or editing an agent under `.claude/agents/` or `~/.claude/agents/` does **not** register it
+  in the running session: `subagent_type: pr-reviewer` fails with "Agent type not found" until
+  Claude Code reloads. Until then, spawn the generic agent and point it at the file as its
+  operating instructions — same model, same result.
 
 - **Why this replaced CodeRabbit (2026-08-01).** It runs on the Claude subscription instead of a
   third-party quota, so a session can no longer be blocked mid-flight — which is exactly what
