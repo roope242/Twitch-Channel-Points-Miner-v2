@@ -9,8 +9,15 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-02 — docs only, no code touched (`1f2480c`, straight to `master` at the
-user's call). Second half of the same split: the `pr-reviewer` agent left this repo for
+**Last updated:** 2026-08-04 — docs only, no code touched (`57763af`, straight to `master` at the
+user's call). `.github/ISSUE_TEMPLATE/agent_task.yml` turns the shape these issues had converged on
+by hand into a GitHub form: code pointers as `path:line`, a concrete failure scenario, an Evidence
+dropdown, and a **required** "Not verified". Field labels render as `###` headings, so an agent
+reading the issue and nothing else gets a fixed, parseable structure. The two inherited templates
+stay for users reporting the miner broken. **#36 filed** under the new scheme — the dashboard
+sidebar is a directory listing, not session state. Nothing in flight; **#13 is still next**.
+
+Previously, 2026-08-02 (`1f2480c`, also straight to `master`). Second half of the CLAUDE.md split: the `pr-reviewer` agent left this repo for
 `~/.claude/agents/`, rewritten to be generic, and the global instructions now require a
 fresh-context review on **every** PR in any repo rather than only this one. The agent had been
 carrying fork knowledge — an offline construction recipe for this miner, a stale jsdom
@@ -65,7 +72,8 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `b2b0d33` | Clean, pushed. Only branch in the repo. |
+| `master` | `57763af` | Clean, pushed. Only branch in the repo. |
+| **#36** — dashboard shows disk state, not session state | filed 2026-08-04 | Open, unscheduled. First issue written to the `agent_task.yml` template. Reasoned from the code; the dashboard was never run for it. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
@@ -546,6 +554,12 @@ works from a checkout regardless of packaging.
 ---
 
 ## Standing workflow
+
+- **New issues follow `.github/ISSUE_TEMPLATE/agent_task.yml`.** `gh issue create` bypasses the
+  form — GitHub only applies it in the web UI — so write the body with the same `###` headings by
+  hand. The one that gets skipped and shouldn't is **Not verified**: an issue that quietly implies
+  it was reproduced sends the next session hunting for a repro that never existed. #36 is the
+  worked example.
 
 - **Every code fix goes through a PR, and the review is a fresh-context agent.** Branch off
   `master`, commit, push, `gh pr create` against `roope242/master`. Then spawn the `pr-reviewer`
