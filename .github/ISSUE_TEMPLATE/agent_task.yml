@@ -1,0 +1,162 @@
+name: Fork task (agent-filed)
+description: A defect, cleanup or piece of work on this fork, written so a cold-start session can pick it up
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For work on **this fork**. If you are a user reporting that the miner is broken for you,
+        use *Bug report* instead, or take it to the upstream tracker.
+
+        Every heading below becomes a `###` section in the issue body, so a session that reads
+        this issue and nothing else gets a fixed, parseable shape. Write for that reader: it has
+        no memory of the conversation that produced the issue, and it will act on what is here.
+        `ISSUES.md` is the companion handoff document — this issue holds the *problem*, `ISSUES.md`
+        holds where the work stands.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Defect — wrong behaviour in a running miner
+        - Feature — a capability the miner does not have
+        - Performance — correct but slow or wasteful
+        - Maintenance — code health, dependencies, packaging, CI
+        - Test coverage — something provable that nothing proves
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: |
+        What is wrong, in a few sentences. State the behaviour, not the fix.
+        If this was split out of a review or another issue, say so in the first line.
+      placeholder: |
+        Split out of the review of PR #31 rather than widened into it.
+
+        `WebSocketsPool.submit()` decides whether to open another connection from the last
+        one's current topic count, which reads 0 for the 30s a reconnect is pending.
+    validations:
+      required: true
+
+  - type: textarea
+    id: code-pointers
+    attributes:
+      label: Code pointers
+      description: |
+        `path/to/file.py:LINE` for every site involved, one per line, with the quoted line or
+        block where it helps. Line numbers go stale — quote enough that the reader can still
+        find it. This is the field that saves a cold session its first ten minutes.
+      placeholder: |
+        `TwitchChannelPointsMiner/classes/WebSocketsPool.py:69`
+
+        ```python
+        if self.ws == [] or len(self.ws[-1].topics) >= 50:
+        ```
+
+        `TwitchChannelPointsMiner/classes/WebSocketsPool.py:491` — the excess LISTENs log here
+        and nothing retries.
+    validations:
+      required: true
+
+  - type: textarea
+    id: failure-scenario
+    attributes:
+      label: Failure scenario
+      description: |
+        Concrete inputs and state, then the wrong output. Name the thread, the timing and the
+        user-visible consequence. "This looks racy" is not a failure scenario; "at T+10 a
+        followers refresh puts 12 topics on a connection that replays 48 more at T+30, and
+        those streamers get no PubSub events for the rest of the session" is.
+
+        For a feature, this is the situation where today's behaviour blocks or misleads
+        someone — told concretely, with the same specificity.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence
+      description: How far this was actually taken. Be honest — the next session will trust it.
+      options:
+        - Observed in a live run
+        - Reproduced by a test
+        - Reproduced offline without a test
+        - Reasoned from the code, not reproduced
+    validations:
+      required: true
+
+  - type: textarea
+    id: not-verified
+    attributes:
+      label: Not verified
+      description: |
+        **Required, and never "n/a".** What was *not* checked: paths not exercised, assumptions
+        about Twitch's behaviour taken on faith, versions not tried. An issue that claims more
+        certainty than it has costs more than one that claims none.
+      placeholder: |
+        Reasoned from the code, not reproduced — forcing it needs a real 30s reconnect window
+        and a concurrent followers refresh. Twitch's actual response to the 51st LISTEN on a
+        connection is not confirmed here; only the documented limit is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: direction
+    attributes:
+      label: Direction
+      description: |
+        Where a fix probably goes, and the options if there is more than one defensible shape.
+        This is a starting point, not a mandate — the session that takes the issue may find a
+        better one. If a decision has to be made before work starts, put it here as an open
+        question rather than picking silently.
+    validations:
+      required: false
+
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: |
+        The acceptance criteria, as things that can be checked. Include the verification this
+        change specifically needs beyond the standard suite — a live container run, a test
+        shown failing against the pre-fix revision, a `README.md`/`example.py` update for a new
+        user-facing option.
+      placeholder: |
+        - [ ] A new topic never lands on a connection with a pending replay
+        - [ ] Test in `tests/` that fails against `888c375^` and passes after
+        - [ ] Live container run reaches the WebSocket phase with two connections open
+        - [ ] `.venv/bin/python -m pytest tests/ -q` green
+    validations:
+      required: true
+
+  - type: textarea
+    id: traps
+    attributes:
+      label: Traps and related work
+      description: |
+        Repo-specific things that will bite whoever picks this up, and links to related issues
+        or PRs. Anything general enough to apply to the *next* task belongs in `CLAUDE.md`
+        instead — put it there and link to it from here.
+      placeholder: |
+        - `__slots__` blocks monkeypatching on the miner; drive it through real calls.
+        - `self.streamers` is passed by reference into `WebSocketsPool` — appending is fine,
+          rebinding silently breaks every handler.
+        - Related: #26 covers the dashboard half of this.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: before-filing
+    attributes:
+      label: Before filing
+      options:
+        - label: Checked this is not already open here, or closed with a reason
+          required: true
+        - label: Checked whether upstream (`rdavydov`) already has it, if it is not fork-local
+          required: false

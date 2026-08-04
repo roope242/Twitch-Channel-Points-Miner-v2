@@ -1,5 +1,5 @@
 name: Bug report
-description: Create a report to help us improve
+description: The miner is broken for you as a user — report it here
 labels: bug
 
 body:
