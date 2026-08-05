@@ -83,7 +83,7 @@ Do these in order at the beginning of a session, before starting anything new.
 | `master` | `65662aa` | Clean, pushed. |
 | **PR #37** — issue #13, device-code login | merge commit `65662aa` | **Merged 2026-08-05.** Three review passes, four iterations; CI green on 3.9/3.13/node; live-verified in the container. |
 | **#38, #39, #40** | filed 2026-08-05 | Open, unscheduled. All three split out of PR #37's second review rather than widened into it. |
-| **Merged branches not deleted** | `fix/10-pubsub-reconnection`, `fix/32-submit-capacity-race`, `fix-13-device-code-login` | Still present, local **and** on `origin`, contrary to the 2026-08-01 note below. Nothing depends on them; deleting needs the user's say-so. |
+| **Merged branches** | — | Deleted 2026-08-05 with `git branch -d` (all three were contained in `master`) plus `git push origin --delete fix-13-device-code-login`. `master` is the only branch again, local and remote. Note `git branch -a` lists stale remote refs until `git fetch --prune`: two of the three had no remote at all. |
 | **#36** — dashboard shows disk state, not session state | filed 2026-08-04 | Open, unscheduled. First issue written to the `agent_task.yml` template. Reasoned from the code; the dashboard was never run for it. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
@@ -98,8 +98,8 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight — see "Next up". The 2026-08-01 note claiming every merged branch was deleted
-is **wrong**: three still exist, local and on `origin`. Checked, not assumed, on 2026-08-05.
+**#39 + #38 are in flight** on `fix-39-login-give-up` — see "Next up". `master` is the only other
+branch, local and remote, as of 2026-08-05.
 
 ### PR #37's three review passes, and the regression the last one caught
 
