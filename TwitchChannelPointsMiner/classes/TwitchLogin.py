@@ -30,6 +30,15 @@ from time import sleep
 
 logger = logging.getLogger(__name__)
 
+# How many device codes login_flow() will request before giving up. Twitch
+# documents a 30-minute expires_in per code, and a malformed device response
+# (see the "Unexpected TV login response" branch below) also spends an
+# attempt rather than looping forever on its own -- so this bounds both a
+# never-activated code and a run of bad responses to the same total wait,
+# roughly 1.5 hours worst case. That is far more patience than a headless
+# deployment needs and, unlike `while True`, it is not infinite.
+MAX_DEVICE_CODE_ATTEMPTS = 3
+
 """def interceptor(request) -> str:
     if (
         request.method == 'POST'
@@ -91,8 +100,12 @@ class TwitchLogin(object):
         # login-fix
         use_backup_flow = False
         # use_backup_flow = True
-        while True:
-            logger.info("Trying the TV login method..")
+        attempt = 0
+        while attempt < MAX_DEVICE_CODE_ATTEMPTS:
+            attempt += 1
+            logger.info(
+                f"Trying the TV login method.. (attempt {attempt}/{MAX_DEVICE_CODE_ATTEMPTS})"
+            )
 
             login_response = self.send_oauth_request(
                 "https://id.twitch.tv/oauth2/device", post_data)
@@ -110,14 +123,19 @@ class TwitchLogin(object):
                 break
 
             login_response_json = login_response.json()
+            user_code = login_response_json.get("user_code")
+            device_code = login_response_json.get("device_code")
+            interval = login_response_json.get("interval")
+            expires_in = login_response_json.get("expires_in")
 
-            if "user_code" in login_response_json:
-                user_code: str = login_response_json["user_code"]
+            if (
+                user_code is not None
+                and device_code is not None
+                and interval is not None
+                and expires_in is not None
+            ):
                 now = datetime.now(timezone.utc)
-                device_code: str = login_response_json["device_code"]
-                interval: int = login_response_json["interval"]
-                expires_at = now + \
-                    timedelta(seconds=login_response_json["expires_in"])
+                expires_at = now + timedelta(seconds=expires_in)
                 logger.info(
                     "Open https://www.twitch.tv/activate"
                 )
@@ -125,7 +143,7 @@ class TwitchLogin(object):
                     f"and enter this code: {user_code}"
                 )
                 logger.info(
-                    f"Hurry up! It will expire in {int(login_response_json['expires_in'] / 60)} minutes!"
+                    f"Hurry up! It will expire in {int(expires_in / 60)} minutes!"
                 )
                 # twofa = input("2FA token: ")
                 # webbrowser.open_new_tab("https://www.twitch.tv/activate")
@@ -180,6 +198,15 @@ class TwitchLogin(object):
 
             if use_backup_flow:
                 break
+        else:
+            # Reached only when the loop ran out of attempts on its own --
+            # not via either `break` above -- i.e. we requested
+            # MAX_DEVICE_CODE_ATTEMPTS device codes and none was ever
+            # activated (or every response came back malformed).
+            logger.error(
+                f"Giving up after {MAX_DEVICE_CODE_ATTEMPTS} device code "
+                "attempts with no completed login."
+            )
 
         if use_backup_flow:
             # self.set_token(self.login_flow_backup(password))
