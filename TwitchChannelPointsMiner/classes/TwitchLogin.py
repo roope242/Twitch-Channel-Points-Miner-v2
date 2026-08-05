@@ -128,10 +128,15 @@ class TwitchLogin(object):
                 break
 
             login_response_json = login_response.json()
-            user_code = login_response_json.get("user_code")
-            device_code = login_response_json.get("device_code")
-            interval = login_response_json.get("interval")
-            expires_in = login_response_json.get("expires_in")
+            # A 200 whose body is not an object at all -- `null`, a list, a
+            # bare string -- reaches here too, and .get() would raise on it.
+            # post_gql_request has met `data: null` from Twitch for real.
+            fields = login_response_json if isinstance(
+                login_response_json, dict) else {}
+            user_code = fields.get("user_code")
+            device_code = fields.get("device_code")
+            interval = fields.get("interval")
+            expires_in = fields.get("expires_in")
 
             if (
                 user_code is not None
@@ -199,7 +204,10 @@ class TwitchLogin(object):
                 logger.error(
                     f"Unexpected TV login response, retrying: {login_response_json}"
                 )
-                sleep(MALFORMED_RESPONSE_RETRY_SECONDS)
+                # No point waiting out the interval on the last attempt --
+                # there is nothing left to retry, only the give-up below.
+                if attempt < MAX_DEVICE_CODE_ATTEMPTS:
+                    sleep(MALFORMED_RESPONSE_RETRY_SECONDS)
 
             if use_backup_flow:
                 break

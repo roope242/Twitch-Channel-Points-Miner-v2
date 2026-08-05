@@ -436,10 +436,39 @@ def test_malformed_device_responses_count_against_give_up_bound(monkeypatch):
 
     assert result is False
     assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    # One wait *between* attempts, and none after the last -- waiting out the
+    # retry interval when there is no attempt left only delays the exit.
     assert sleep_calls == (
         [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
-        * twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
     )
+
+
+def test_non_dict_device_response_retries_instead_of_raising(monkeypatch):
+    """A 200 whose JSON body is not an object at all.
+
+    The `.get()` reads that fixed #38 assume a mapping, where the membership
+    test they replaced did not: `"user_code" in <list>` is merely False. So
+    `null`, a list or a bare string turned a graceful retry into an
+    AttributeError out of login_flow() -- the same failure #38 was filed to
+    remove, one input shape over. `data: null` is a body Twitch is on record
+    as returning (see post_gql_request in classes/Twitch.py).
+    """
+    for body in (None, ["error"], "rate limited"):
+        twitch_login = make_login()
+        calls = 0
+
+        def fake_send_oauth_request(self, url, json_data, body=body):
+            nonlocal calls
+            calls += 1
+            assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+            return _FakeResponse(200, body)
+
+        monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+        monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+        assert twitch_login.login_flow() is False
+        assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
 
 
 def test_poll_success_at_expiry_still_returns_token(monkeypatch):
