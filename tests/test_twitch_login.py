@@ -87,7 +87,12 @@ def make_twitch(tmp_path, monkeypatch, username="some-user"):
     return Twitch(username, "agent")
 
 
-def test_poll_loop_exits_after_code_expires(monkeypatch):
+def test_poll_loop_gives_up_after_max_device_code_attempts(monkeypatch):
+    """Covers #39: the outer loop used to re-issue a device code forever once
+    the inner poll loop broke out on expiry. Every device code here expires
+    immediately, so a correct fix must stop requesting new ones once
+    MAX_DEVICE_CODE_ATTEMPTS is reached instead of looping past it.
+    """
     twitch_login = make_login()
 
     device_code_calls = 0
@@ -98,13 +103,16 @@ def test_poll_loop_exits_after_code_expires(monkeypatch):
         nonlocal device_code_calls, token_poll_calls, second_device_request_body
         if url.endswith("/device"):
             device_code_calls += 1
-            if device_code_calls > 1:
-                # This is the retry after expiry -- the one a stale/aliased
-                # post_data would corrupt. Capture it for the assertion below
-                # instead of asserting inline, so the outer loop still ends
-                # the test cleanly on a non-200 either way.
+            # Pre-fix, this would run forever; fail the test loudly instead
+            # of hanging if the bound is not honoured.
+            assert (
+                device_code_calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+            ), "login_flow requested a device code past the bound"
+            if device_code_calls == 2:
+                # This is the retry after the first code's expiry -- the one
+                # a stale/aliased post_data would corrupt. Capture it for the
+                # assertion below.
                 second_device_request_body = json_data
-                return _FakeResponse(500, {})
             return _FakeResponse(
                 200,
                 {
@@ -123,7 +131,7 @@ def test_poll_loop_exits_after_code_expires(monkeypatch):
         token_poll_calls += 1
         # Bounds the pre-fix infinite loop into a clean failure instead of a
         # hang: if the expiry check never fires, this trips well before it.
-        assert token_poll_calls < 5, "poll loop did not exit once the code expired"
+        assert token_poll_calls < 20, "poll loop did not exit once the code expired"
         return _FakeResponse(400, {})
 
     monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
@@ -132,14 +140,54 @@ def test_poll_loop_exits_after_code_expires(monkeypatch):
     result = twitch_login.login_flow()
 
     assert result is False
-    assert token_poll_calls == 1
+    # One poll per expired code, none left over once the bound is hit.
+    assert token_poll_calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert device_code_calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
     # Regression for a bug the expiry fix exposed: the token payload built at
     # the top of the inner loop used to reuse the *same* `post_data` name as
     # the device-code payload, so this retry silently posted a scope-less
     # token body to the device endpoint instead of the original one.
-    assert device_code_calls == 2
     assert second_device_request_body is not None
     assert "scopes" in second_device_request_body
+
+
+def test_successful_login_before_bound_is_not_treated_as_given_up(monkeypatch):
+    """The bound must not interfere with an ordinary retry-then-succeed run:
+    a first code expires, a second one is entered in time.
+    """
+    twitch_login = make_login()
+    monkeypatch.setattr(TwitchLogin, "check_login", lambda self: True)
+
+    device_code_calls = 0
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal device_code_calls
+        if url.endswith("/device"):
+            device_code_calls += 1
+            assert device_code_calls <= 2
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 0,
+                    # First code is already expired; second isn't.
+                    "expires_in": -1 if device_code_calls == 1 else 1800,
+                },
+            )
+        if device_code_calls == 1:
+            return _FakeResponse(400, {})
+        return _FakeResponse(200, {"access_token": "REAL-TOKEN"})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    result = twitch_login.login_flow()
+
+    assert result is True
+    assert twitch_login.token == "REAL-TOKEN"
+    # Well within MAX_DEVICE_CODE_ATTEMPTS -- the bound never fired.
+    assert device_code_calls == 2
 
 
 def test_unknown_poll_error_raises_not_implemented_with_code(monkeypatch):
@@ -242,7 +290,185 @@ def test_missing_user_code_sleeps_before_retry(monkeypatch):
 
     assert result is False
     assert calls == 2
-    assert sleep_calls == [5]
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+
+
+def test_missing_device_code_sleeps_before_retry(monkeypatch):
+    """Covers #38: a 200 device body with `user_code` but no `device_code`
+    used to be read with `login_response_json["device_code"]` and raise a
+    bare KeyError out of login_flow() -- on the field the poll loop actually
+    posts, so this is the one that matters most. Must retry like the other
+    missing-field cases instead.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "interval": 5,
+                    "expires_in": 1800,
+                    # "device_code" missing.
+                },
+            )
+        # End the loop on the second request so the test terminates.
+        return _FakeResponse(500, {})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == 2
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+
+
+def test_missing_interval_sleeps_before_retry(monkeypatch):
+    """Covers #38: a 200 device body with `user_code` but no `interval` used
+    to be read with `login_response_json["interval"]` and raise a bare
+    KeyError out of login_flow(). It must be treated like the missing-
+    user_code case instead: log, sleep, retry.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "expires_in": 1800,
+                    # "interval" missing.
+                },
+            )
+        # End the loop on the second request so the test terminates.
+        return _FakeResponse(500, {})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == 2
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+
+
+def test_missing_expires_in_sleeps_before_retry(monkeypatch):
+    """Same as above for the other field named in #38: `expires_in` missing
+    used to raise out of `timedelta(seconds=login_response_json["expires_in"])`.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 5,
+                    # "expires_in" missing.
+                },
+            )
+        # End the loop on the second request so the test terminates.
+        return _FakeResponse(500, {})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == 2
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+
+
+def test_malformed_device_responses_count_against_give_up_bound(monkeypatch):
+    """A run of malformed device responses (the #38 retry path) must spend
+    attempts from the same #39 bound rather than looping forever on its own.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        assert (
+            calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        ), "malformed-response retries were not bounded"
+        # Missing "user_code" on every single response.
+        return _FakeResponse(200, {"interval": 5, "expires_in": 1800})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    # One wait *between* attempts, and none after the last -- waiting out the
+    # retry interval when there is no attempt left only delays the exit.
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
+
+
+def test_non_dict_device_response_retries_instead_of_raising(monkeypatch):
+    """A 200 whose JSON body is not an object at all.
+
+    The `.get()` reads that fixed #38 assume a mapping, where the membership
+    test they replaced did not: `"user_code" in <list>` is merely False. So
+    `null`, a list or a bare string turned a graceful retry into an
+    AttributeError out of login_flow() -- the same failure #38 was filed to
+    remove, one input shape over. `data: null` is a body Twitch is on record
+    as returning (see post_gql_request in classes/Twitch.py).
+    """
+    for body in (None, ["error"], "rate limited"):
+        twitch_login = make_login()
+        calls = 0
+
+        def fake_send_oauth_request(self, url, json_data, body=body):
+            nonlocal calls
+            calls += 1
+            assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+            return _FakeResponse(200, body)
+
+        monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+        monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+        assert twitch_login.login_flow() is False
+        assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
 
 
 def test_poll_success_at_expiry_still_returns_token(monkeypatch):
