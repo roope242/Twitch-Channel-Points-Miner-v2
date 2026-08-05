@@ -37,11 +37,12 @@ logger = logging.getLogger(__name__)
 # MALFORMED_RESPONSE_RETRY_SECONDS. Unlike `while True`, both are finite.
 MAX_DEVICE_CODE_ATTEMPTS = 3
 
-# Wait between retries of a device response we could not use. Long enough
-# that three attempts ride out a transient edge error or rate limit rather
-# than exiting the process inside a blip -- before the attempt bound existed
-# this path retried until Twitch recovered, and that resilience is worth
-# keeping within a bounded window.
+# Wait between retries of a device response we could not use. Sharing the
+# attempt bound above means this path tolerates two waits, so ~60 seconds of
+# malformed responses -- enough to cross a brief edge error, and nowhere near
+# the ~1.5 hours an unactivated code gets. Before the bound existed it
+# retried until Twitch recovered, so this is deliberately the shorter end of
+# that trade; a longer outage now ends in BadCredentialsException.
 MALFORMED_RESPONSE_RETRY_SECONDS = 30
 
 """def interceptor(request) -> str:
