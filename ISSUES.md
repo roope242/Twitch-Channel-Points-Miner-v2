@@ -9,13 +9,21 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-05 — **#13 closed** (PR #37, merge commit `65662aa`). Four defects in the
+**Last updated:** 2026-08-05, second session of the day — **#39 and #38 closed** (PR #41, merge
+commit `aef9778`). `login_flow()` is bounded now: three device codes, then `False`, which
+`Twitch.login()` turns into `BadCredentialsException`. All four fields of the device response are
+read with `.get()` behind an `isinstance(..., dict)` guard, so a partial or non-object body logs
+and retries instead of raising. Four review passes; two found real defects, the second of which was
+a crash **this branch introduced** by replacing a membership test with `.get()`. **#42 and #43
+filed** rather than patched. Nothing in flight; see "Next up".
+
+Earlier the same day — **#13 closed** (PR #37, merge commit `65662aa`). Four defects in the
 device-code login flow, plus a fifth the first fix exposed and a sixth the review found. Three
 review passes; the last one caught a regression *this branch* introduced, so it ran to four
 iterations under the breaking-bug exception. Three findings were filed rather than patched —
 **#38, #39, #40** — under a new standing rule: hitting the iteration cap ends the patching, not the
-finding. Also confirmed today: no scheduled workflow has run since the two 2026-08-01 failures, so
-#29's daily failure mail really did stop. Nothing in flight; see "Next up".
+finding. Also confirmed: no scheduled workflow has run since the two 2026-08-01 failures, so
+#29's daily failure mail really did stop.
 
 Previously, 2026-08-04 — docs only, no code touched (`57763af`, straight to `master` at the
 user's call). `.github/ISSUE_TEMPLATE/agent_task.yml` turns the shape these issues had converged on
@@ -80,9 +88,10 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `65662aa` | Clean, pushed. |
+| `master` | `aef9778` | Clean, pushed. Only branch, local and remote. |
+| **PR #41** — issues #39 + #38, bounded login | merge commit `aef9778` | **Merged 2026-08-05.** Four review passes; CI green on 3.9/3.13/node. Not live-verified — valid cookies skip `login_flow()` entirely, so the container run proves only that startup still works. |
 | **PR #37** — issue #13, device-code login | merge commit `65662aa` | **Merged 2026-08-05.** Three review passes, four iterations; CI green on 3.9/3.13/node; live-verified in the container. |
-| **#38, #39, #40** | filed 2026-08-05 | Open, unscheduled. All three split out of PR #37's second review rather than widened into it. |
+| **#40, #42, #43** | filed 2026-08-05 | Open, unscheduled. All three split out of PR #37's and PR #41's reviews rather than widened into them. |
 | **Merged branches** | — | Deleted 2026-08-05 with `git branch -d` (all three were contained in `master`) plus `git push origin --delete fix-13-device-code-login`. `master` is the only branch again, local and remote. Note `git branch -a` lists stale remote refs until `git fetch --prune`: two of the three had no remote at all. |
 | **#36** — dashboard shows disk state, not session state | filed 2026-08-04 | Open, unscheduled. First issue written to the `agent_task.yml` template. Reasoned from the code; the dashboard was never run for it. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
@@ -98,8 +107,26 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-**#39 + #38 are in flight** on `fix-39-login-give-up` — see "Next up". `master` is the only other
-branch, local and remote, as of 2026-08-05.
+Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+
+### PR #41's four review passes, and what a `.get()` cost
+
+The transferable part is small and sharp: **`x in dict` and `dict.get(x)` are not the same
+robustness**. `"user_code" in login_response_json` is merely `False` for a list, a string or
+`None`; `.get()` on any of them raises `AttributeError`. Swapping one for the other to fix a
+`KeyError` therefore *introduced* a crash on the adjacent input shape — the exact failure #38 was
+filed to remove — and `data: null` is a body Twitch is on record returning. An
+`isinstance(..., dict)` fold into the same guard closed it.
+
+The other three findings were about numbers rather than code. The give-up comment claimed both
+failure paths bounded to "roughly 1.5 hours"; measured, the malformed-response path spent all three
+attempts in **15 seconds**, because it slept a flat 5s. That would have exited the process inside a
+transient Twitch blip the old unbounded loop rode out. It is 30s per retry now, and the comment
+states both lengths instead of averaging them into a number true of neither. The PR body separately
+claimed test counts from two commits earlier. **Prose about verification rots faster than the
+verification does** — re-read it against the final head, not the one it described when written.
+
+Passes 3 and 4 found nothing needing code, which is what stopping looked like.
 
 ### PR #37's three review passes, and the regression the last one caught
 
@@ -241,14 +268,21 @@ to a real Discord webhook.
 the four defects were as filed, but fixing them exposed two more, and the login path is the one a
 user hits before anything else works.
 
-**#39 is the strongest of what #13 left behind** — `login_flow()` still re-issues device codes
-forever, so a headless deployment that loses its cookies looks like a hang rather than a login
-failure. #38 (a `KeyError` on a device response missing `interval`) is the same size and sits in
-the same method, so the two are naturally one branch. #40 is smaller and rests on a response shape
-nobody has seen; it can wait.
+**#39 and #38 are closed** (PR #41, `aef9778`).
 
-After those, the order is unchanged: **#33** (container testing), then **#36**, **#26**, **#16**,
-with **#7 and #11** going upstream rather than being fixed here.
+**#33 is next, and the case for it is the strongest on the list.** The published Docker image runs
+**Python 3.10**; CI tests 3.9 and 3.13. The runtime that actually ships is the one nothing covers,
+so a 3.10-only failure passes CI and breaks the image. Everything after it gets verified more
+cheaply once it exists.
+
+The counter-argument, stated so the next session can weigh it rather than re-derive it: #33 is
+tooling and produces no user-visible fix, and the login work has left three small, well-specified
+issues sitting in one method — **#42, #43** and **#40** — which are cheap to do together while the
+method is fresh. That is a real option, not a consolation prize; #42 and #43 are both "an unhandled
+exception escapes `login_flow()`", which is the shape the last two PRs kept finding.
+
+After that: **#36**, **#26**, **#16**, with **#7 and #11** going upstream rather than being fixed
+here.
 
 **#13 was a candidate for batching with an upstream submission** and no longer is, cleanly: the fix
 grew a `BadCredentialsException` on failed login and a restructured `Twitch.login()`, which is a
@@ -312,8 +346,10 @@ user with the defaults.
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
-| 38 | Device response missing `interval` kills the process | XS | Low | Low–Med | Open — split from PR #37's review |
-| 39 | `login_flow()` re-issues device codes forever | S | Low | Med | Open — split from PR #37's review |
+| ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
+| ~~39~~ | `login_flow()` re-issues device codes forever | S | Low | Med | **Closed** — PR #41, `aef9778` |
+| 42 | A single non-200 aborts login instantly | XS | Low | Low–Med | Open — split from PR #41's review |
+| 43 | A non-JSON 200 escapes as `JSONDecodeError` | XS | Low | Low–Med | Open — split from PR #41's review |
 | 40 | Token-endpoint error body logged verbatim | XS | Low | Low | Open — split from PR #37's review |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
