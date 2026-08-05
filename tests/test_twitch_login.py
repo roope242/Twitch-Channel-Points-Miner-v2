@@ -50,7 +50,10 @@ import pickle
 import pytest
 
 import TwitchChannelPointsMiner.classes.TwitchLogin as twitch_login_module
-from TwitchChannelPointsMiner.classes.Exceptions import WrongCookiesException
+from TwitchChannelPointsMiner.classes.Exceptions import (
+    BadCredentialsException,
+    WrongCookiesException,
+)
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.TwitchLogin import TwitchLogin
 
@@ -348,3 +351,36 @@ def test_login_propagates_permission_error_not_reported_as_corrupt(
             twitch.login()
     finally:
         os.chmod(twitch.cookies_file, 0o600)
+
+
+def test_login_raises_when_the_recovery_login_fails(tmp_path, monkeypatch):
+    """A failed re-login after corrupt cookies must not return quietly.
+
+    `login_flow()` gives up and returns False on a single non-200 from the
+    device endpoint. Returning from `login()` there leaves the session with no
+    Authorization header, and `run()` never checks -- the miner then reports
+    "0 followers" and "streamer does not exist" for the rest of its life
+    instead of a login failure, on every subsequent start.
+    """
+    twitch = make_twitch(tmp_path, monkeypatch)
+    with open(twitch.cookies_file, "wb") as f:
+        f.write(b"not a pickle")
+
+    monkeypatch.setattr(TwitchLogin, "login_flow", lambda self: False)
+
+    with pytest.raises(BadCredentialsException):
+        twitch.login()
+
+    assert twitch.twitch_login.token is None
+    assert "Authorization" not in twitch.twitch_login.session.headers
+
+
+def test_login_raises_when_the_first_login_fails(tmp_path, monkeypatch):
+    """Same silent-continue, reached through the no-cookies-file branch."""
+    twitch = make_twitch(tmp_path, monkeypatch)
+    assert os.path.isfile(twitch.cookies_file) is False
+
+    monkeypatch.setattr(TwitchLogin, "login_flow", lambda self: False)
+
+    with pytest.raises(BadCredentialsException):
+        twitch.login()
