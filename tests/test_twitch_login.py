@@ -290,7 +290,7 @@ def test_missing_user_code_sleeps_before_retry(monkeypatch):
 
     assert result is False
     assert calls == 2
-    assert sleep_calls == [5]
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
 
 
 def test_missing_device_code_sleeps_before_retry(monkeypatch):
@@ -330,7 +330,7 @@ def test_missing_device_code_sleeps_before_retry(monkeypatch):
 
     assert result is False
     assert calls == 2
-    assert sleep_calls == [5]
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
 
 
 def test_missing_interval_sleeps_before_retry(monkeypatch):
@@ -369,7 +369,7 @@ def test_missing_interval_sleeps_before_retry(monkeypatch):
 
     assert result is False
     assert calls == 2
-    assert sleep_calls == [5]
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
 
 
 def test_missing_expires_in_sleeps_before_retry(monkeypatch):
@@ -406,7 +406,7 @@ def test_missing_expires_in_sleeps_before_retry(monkeypatch):
 
     assert result is False
     assert calls == 2
-    assert sleep_calls == [5]
+    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
 
 
 def test_malformed_device_responses_count_against_give_up_bound(monkeypatch):
@@ -436,7 +436,10 @@ def test_malformed_device_responses_count_against_give_up_bound(monkeypatch):
 
     assert result is False
     assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
-    assert sleep_calls == [5] * twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    )
 
 
 def test_poll_success_at_expiry_still_returns_token(monkeypatch):

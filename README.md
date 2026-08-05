@@ -435,7 +435,7 @@ The correct solution for Windows lies in the correct command line: `docker run -
 
 If you don't mount the volume for the analytics (or cookies or logs) folder, the folder will be automatically created on the Docker container, and you will lose all the data when it is stopped.
 
-If you don't have a cookie or it's your first time running the script, you will need to login to Twitch and start the container with `-it` args. If you need to run multiple containers you can bind different ports (only if you need also the analytics) and mount dirrent run.py file, like
+If you don't have a cookie or it's your first time running the script, you will need to login to Twitch and start the container with `-it` args. Have the code ready to enter: this fork asks Twitch for at most three device codes before giving up and exiting, so an unattended first run stops after about an hour and a half rather than printing fresh codes forever. Start it again when you are ready to activate. If you need to run multiple containers you can bind different ports (only if you need also the analytics) and mount dirrent run.py file, like
 
 ```sh
 docker run --name user1 -v $(pwd)/user1.py:/usr/src/app/run.py:ro -p 5001:5000 roopeli/twitch-channel-points-miner-v2

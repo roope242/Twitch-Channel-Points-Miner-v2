@@ -30,14 +30,19 @@ from time import sleep
 
 logger = logging.getLogger(__name__)
 
-# How many device codes login_flow() will request before giving up. Twitch
-# documents a 30-minute expires_in per code, and a malformed device response
-# (see the "Unexpected TV login response" branch below) also spends an
-# attempt rather than looping forever on its own -- so this bounds both a
-# never-activated code and a run of bad responses to the same total wait,
-# roughly 1.5 hours worst case. That is far more patience than a headless
-# deployment needs and, unlike `while True`, it is not infinite.
+# How many device codes login_flow() will request before giving up. The two
+# ways of spending an attempt are deliberately very different lengths: a code
+# the user never activates costs a full expires_in (~30 minutes, so three is
+# ~1.5 hours of patience), while a malformed device response costs only
+# MALFORMED_RESPONSE_RETRY_SECONDS. Unlike `while True`, both are finite.
 MAX_DEVICE_CODE_ATTEMPTS = 3
+
+# Wait between retries of a device response we could not use. Long enough
+# that three attempts ride out a transient edge error or rate limit rather
+# than exiting the process inside a blip -- before the attempt bound existed
+# this path retried until Twitch recovered, and that resilience is worth
+# keeping within a bounded window.
+MALFORMED_RESPONSE_RETRY_SECONDS = 30
 
 """def interceptor(request) -> str:
     if (
@@ -194,7 +199,7 @@ class TwitchLogin(object):
                 logger.error(
                     f"Unexpected TV login response, retrying: {login_response_json}"
                 )
-                sleep(5)
+                sleep(MALFORMED_RESPONSE_RETRY_SECONDS)
 
             if use_backup_flow:
                 break
