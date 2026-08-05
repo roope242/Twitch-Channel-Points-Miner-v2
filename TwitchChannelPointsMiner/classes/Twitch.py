@@ -28,6 +28,7 @@ from TwitchChannelPointsMiner.classes.entities.Drop import Drop
 from TwitchChannelPointsMiner.classes.Exceptions import (
     StreamerDoesNotExistException,
     StreamerIsOfflineException,
+    WrongCookiesException,
 )
 from TwitchChannelPointsMiner.classes.Settings import (
     Events,
@@ -96,9 +97,19 @@ class Twitch(object):
         if not os.path.isfile(self.cookies_file):
             if self.twitch_login.login_flow():
                 self.twitch_login.save_cookies(self.cookies_file)
-        else:
+            return
+
+        try:
             self.twitch_login.load_cookies(self.cookies_file)
-            self.twitch_login.set_token(self.twitch_login.get_auth_token())
+        except WrongCookiesException:
+            logger.error(
+                f"Cookies file {self.cookies_file} is corrupt, logging in again.."
+            )
+            if self.twitch_login.login_flow():
+                self.twitch_login.save_cookies(self.cookies_file)
+            return
+
+        self.twitch_login.set_token(self.twitch_login.get_auth_token())
 
     # === STREAMER / STREAM / INFO === #
     def update_stream(self, streamer):
