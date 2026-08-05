@@ -7,6 +7,7 @@ import copy
 import logging
 import os
 import pickle
+import tempfile
 
 # import webbrowser
 # import browser_cookie3
@@ -129,7 +130,7 @@ class TwitchLogin(object):
                 # twofa = input("2FA token: ")
                 # webbrowser.open_new_tab("https://www.twitch.tv/activate")
 
-                post_data = {
+                token_post_data = {
                     "client_id": CLIENT_ID,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
@@ -139,12 +140,12 @@ class TwitchLogin(object):
                     # sleep first, not like the user is gonna enter the code *that* fast
                     sleep(interval)
                     login_response = self.send_oauth_request(
-                        "https://id.twitch.tv/oauth2/token", post_data)
-                    if now == expires_at:
-                        logger.error("Code expired. Try again")
-                        break
+                        "https://id.twitch.tv/oauth2/token", token_post_data)
                     # 200 means success, 400 means the user haven't entered the code yet
                     if login_response.status_code != 200:
+                        if datetime.now(timezone.utc) >= expires_at:
+                            logger.error("Code expired. Try again")
+                            break
                         continue
                     # {
                     #     "access_token": "40 chars [A-Za-z0-9]",
@@ -165,13 +166,17 @@ class TwitchLogin(object):
             # ):
                 # raise RequestInvalid()
                     else:
-                        if "error_code" in login_response:
-                            err_code = login_response["error_code"]
+                        err_code = login_response_json.get("error_code")
 
-                        logger.error(f"Unknown error: {login_response}")
+                        logger.error(f"Unknown error: {login_response_json}")
                         raise NotImplementedError(
                             f"Unknown TwitchAPI error code: {err_code}"
                         )
+            else:
+                logger.error(
+                    f"Unexpected TV login response, retrying: {login_response_json}"
+                )
+                sleep(5)
 
             if use_backup_flow:
                 break
@@ -319,7 +324,18 @@ class TwitchLogin(object):
         for cookie_name, value in cookies_dict.items():
             self.cookies.append({"name": cookie_name, "value": value})
         # print(f"cookies2pickle: {self.cookies}")
-        pickle.dump(self.cookies, open(cookies_file, "wb"))
+
+        # Write to a temp file in the same directory, then rename into place --
+        # a kill mid-write can no longer leave a partial/corrupt pickle behind.
+        directory = os.path.dirname(cookies_file) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                pickle.dump(self.cookies, f)
+            os.replace(tmp_path, cookies_file)
+        except BaseException:
+            os.remove(tmp_path)
+            raise
 
     def get_cookie_value(self, key):
         for cookie in self.cookies:
@@ -329,10 +345,26 @@ class TwitchLogin(object):
         return None
 
     def load_cookies(self, cookies_file):
-        if os.path.isfile(cookies_file):
-            self.cookies = pickle.load(open(cookies_file, "rb"))
-        else:
+        if not os.path.isfile(cookies_file):
             raise WrongCookiesException("There must be a cookies file!")
+
+        try:
+            with open(cookies_file, "rb") as f:
+                self.cookies = pickle.load(f)
+        except OSError:
+            # A real I/O failure (e.g. permissions) on an otherwise valid
+            # file -- let it propagate with its own diagnosis rather than
+            # being reported as corrupt, which would throw away good
+            # credentials and fall back to a device-code login.
+            raise
+        except Exception as e:
+            # Truncation raises UnpicklingError/EOFError; a bad protocol byte
+            # raises ValueError; a pickle referencing a class that no longer
+            # exists raises AttributeError/ModuleNotFoundError. The recovery
+            # is the same for all of them: treat the file as unusable.
+            raise WrongCookiesException(
+                f"Cookies file {cookies_file} is corrupt: {e}"
+            ) from e
 
     def get_user_id(self):
         persistent = self.get_cookie_value("persistent")

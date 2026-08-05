@@ -26,8 +26,10 @@ from TwitchChannelPointsMiner.classes.entities.Campaign import Campaign
 from TwitchChannelPointsMiner.classes.entities.CommunityGoal import CommunityGoal
 from TwitchChannelPointsMiner.classes.entities.Drop import Drop
 from TwitchChannelPointsMiner.classes.Exceptions import (
+    BadCredentialsException,
     StreamerDoesNotExistException,
     StreamerIsOfflineException,
+    WrongCookiesException,
 )
 from TwitchChannelPointsMiner.classes.Settings import (
     Events,
@@ -93,12 +95,21 @@ class Twitch(object):
         )
 
     def login(self):
-        if not os.path.isfile(self.cookies_file):
-            if self.twitch_login.login_flow():
-                self.twitch_login.save_cookies(self.cookies_file)
-        else:
-            self.twitch_login.load_cookies(self.cookies_file)
-            self.twitch_login.set_token(self.twitch_login.get_auth_token())
+        if os.path.isfile(self.cookies_file):
+            try:
+                self.twitch_login.load_cookies(self.cookies_file)
+                self.twitch_login.set_token(self.twitch_login.get_auth_token())
+                return
+            except WrongCookiesException as e:
+                logger.error(f"{e}, logging in again..")
+
+        # Returning here without a token would let run() carry on unauthenticated,
+        # where every request fails in a way the miner reports as "0 followers" and
+        # "that streamer does not exist" rather than as a login problem.
+        if self.twitch_login.login_flow() is False:
+            raise BadCredentialsException("Login failed, no token was obtained")
+
+        self.twitch_login.save_cookies(self.cookies_file)
 
     # === STREAMER / STREAM / INFO === #
     def update_stream(self, streamer):
