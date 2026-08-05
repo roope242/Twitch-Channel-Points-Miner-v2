@@ -9,13 +9,21 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-04 — docs only, no code touched (`57763af`, straight to `master` at the
+**Last updated:** 2026-08-05 — **#13 closed** (PR #37, merge commit `65662aa`). Four defects in the
+device-code login flow, plus a fifth the first fix exposed and a sixth the review found. Three
+review passes; the last one caught a regression *this branch* introduced, so it ran to four
+iterations under the breaking-bug exception. Three findings were filed rather than patched —
+**#38, #39, #40** — under a new standing rule: hitting the iteration cap ends the patching, not the
+finding. Also confirmed today: no scheduled workflow has run since the two 2026-08-01 failures, so
+#29's daily failure mail really did stop. Nothing in flight; see "Next up".
+
+Previously, 2026-08-04 — docs only, no code touched (`57763af`, straight to `master` at the
 user's call). `.github/ISSUE_TEMPLATE/agent_task.yml` turns the shape these issues had converged on
 by hand into a GitHub form: code pointers as `path:line`, a concrete failure scenario, an Evidence
 dropdown, and a **required** "Not verified". Field labels render as `###` headings, so an agent
 reading the issue and nothing else gets a fixed, parseable structure. The two inherited templates
 stay for users reporting the miner broken. **#36 filed** under the new scheme — the dashboard
-sidebar is a directory listing, not session state. Nothing in flight; **#13 is still next**.
+sidebar is a directory listing, not session state.
 
 Previously, 2026-08-02 (`1f2480c`, also straight to `master`). Second half of the CLAUDE.md split: the `pr-reviewer` agent left this repo for
 `~/.claude/agents/`, rewritten to be generic, and the global instructions now require a
@@ -72,7 +80,10 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `57763af` | Clean, pushed. Only branch in the repo. |
+| `master` | `65662aa` | Clean, pushed. |
+| **PR #37** — issue #13, device-code login | merge commit `65662aa` | **Merged 2026-08-05.** Three review passes, four iterations; CI green on 3.9/3.13/node; live-verified in the container. |
+| **#38, #39, #40** | filed 2026-08-05 | Open, unscheduled. All three split out of PR #37's second review rather than widened into it. |
+| **Merged branches not deleted** | `fix/10-pubsub-reconnection`, `fix/32-submit-capacity-race`, `fix-13-device-code-login` | Still present, local **and** on `origin`, contrary to the 2026-08-01 note below. Nothing depends on them; deleting needs the user's say-so. |
 | **#36** — dashboard shows disk state, not session state | filed 2026-08-04 | Open, unscheduled. First issue written to the `agent_task.yml` template. Reasoned from the code; the dashboard was never run for it. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
@@ -87,8 +98,44 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight. **#13 is next** — see "Next up". All merged branches were deleted on
-2026-08-01, local and remote: `master` is the only branch that exists now, in either place.
+Nothing is in flight — see "Next up". The 2026-08-01 note claiming every merged branch was deleted
+is **wrong**: three still exist, local and on `origin`. Checked, not assumed, on 2026-08-05.
+
+### PR #37's three review passes, and the regression the last one caught
+
+Kept because the shape is the one this file keeps warning about — **a fix that makes a latent bug
+reachable** — and it happened twice in the same branch.
+
+1. **Session review of the delegate's diff.** `login_flow()` assigned the token payload over
+   `post_data`, the same name the outer loop posts to the *device* endpoint. Harmless only because
+   the inner loop had no reachable exit; fixing the dead expiry check made it reachable, and the
+   retry after an expiry then posted a scope-less token body to `/oauth2/device`. Observed by
+   driving the real `login_flow()` with `send_oauth_request` patched and printing each request.
+2. **Fresh-context `pr-reviewer`.** Two real findings. The broad `except Exception` around
+   `pickle.load` — which *this session had asked for* the round before — swallowed
+   `PermissionError`, so a valid-but-unreadable cookies file reported "is corrupt" and dropped into
+   a device-code login, discarding good credentials for a worse diagnosis than the crash it
+   replaced. And the expiry check ran ahead of the success check, so a token arriving in the final
+   round-trip was thrown away: `200 {"access_token": "REAL-TOKEN"}` at `expires_in: 0` produced
+   `Code expired. Try again` and a fresh device code.
+3. **Second `pr-reviewer` pass, on the fixed head.** Caught the one that mattered most: routing
+   corrupt cookies into `login_flow()` exposed a silent-continue the no-cookies branch already had.
+   `login_flow()` returns `False` on a single non-200 from the device endpoint, both call sites
+   ignored it, and `login()` returned normally with no token. Reproduced: `token` `None`, no
+   `Authorization` header, corrupt file still on disk — after which the miner reports "0 followers"
+   and "streamer does not exist" forever rather than a login problem. **For corrupt cookies that was
+   a regression**: before the branch, the same input crashed loudly on `UnpicklingError`. Both paths
+   raise `BadCredentialsException` now.
+
+**This ran to four iterations, past the three-cycle cap**, on the breaking-bug exception: a defect
+in code the branch itself added, turning a loud failure into a silent one. Cosmetic findings would
+not have earned it.
+
+The second pass also caught an **overstated verification claim in the PR body** — "every new
+assertion was confirmed failing against the pre-fix source", when 2 of 9 pass at base (one is a
+characterisation test; the other passes only because pre-fix `load_cookies` had no `try` at all).
+Corrected to name the revision each test has teeth against. Worth remembering that the session
+wrote that sentence about its own work and believed it.
 
 ### PR #35's four review rounds, and the shape they had
 
@@ -190,11 +237,23 @@ to a real Discord webhook.
 
 ## Next up
 
-**#32 is closed** (PR #35, `888c375`) — it was the last open *correctness* item affecting a running
-miner. **#13 (device-code login) is next**, then #33.
+**#13 is closed** (PR #37, `65662aa`). It turned out to be worth more than the effort table said:
+the four defects were as filed, but fixing them exposed two more, and the login path is the one a
+user hits before anything else works.
 
-#13 is small and low-value here — valid cookies mean the path is rarely touched — so batching it
-with an upstream submission is reasonable.
+**#39 is the strongest of what #13 left behind** — `login_flow()` still re-issues device codes
+forever, so a headless deployment that loses its cookies looks like a hang rather than a login
+failure. #38 (a `KeyError` on a device response missing `interval`) is the same size and sits in
+the same method, so the two are naturally one branch. #40 is smaller and rests on a response shape
+nobody has seen; it can wait.
+
+After those, the order is unchanged: **#33** (container testing), then **#36**, **#26**, **#16**,
+with **#7 and #11** going upstream rather than being fixed here.
+
+**#13 was a candidate for batching with an upstream submission** and no longer is, cleanly: the fix
+grew a `BadCredentialsException` on failed login and a restructured `Twitch.login()`, which is a
+behaviour change upstream would have to want on its own terms rather than a bug fix to wave
+through. Send it only if someone asks.
 
 **Two things left over from #34, both needing a decision rather than code:** the Docker Hub tags
 still point at the 1.57 GB build, because republishing `latest` was not done unilaterally; and
@@ -202,10 +261,9 @@ still point at the 1.57 GB build, because republishing `latest` was not done uni
 secrets, which only the repo owner can do. Until one of those happens, `latest` is a hand-built
 image from a laptop.
 
-**One thing to check, and it needs a day to pass:** #29 was closed on the argument that deleting
-the two scheduled workflows stops the daily failure mail. Confirm no mail arrived on 2026-08-02.
-`gh run list --repo roope242/Twitch-Channel-Points-Miner-v2 --event schedule` should return
-nothing newer than the two 2026-08-01 failures, which predate the fix.
+**#29's fix is confirmed, four days on.** `gh run list --event schedule` on 2026-08-05 returns the
+two 2026-08-01 failures and nothing newer, so deleting the scheduled workflows really did stop the
+daily failure mail. Nothing further to check here.
 
 #30 was done on 2026-08-01 as `ddff42e`, taking option 1 (minimal) from the issue: Python floor,
 both clone URLs, a "This fork" section, the test-suite pointer, and the Docker section. Badges
@@ -222,8 +280,7 @@ any branch in flight and it contradicts the current `CLAUDE.md` guidance, which 
 the same commit. Do it when nothing else is open — the issue carries the measurements (18 of 31
 files, 564 diff lines) and the `.git-blame-ignore-revs` mitigation.
 
-After #21, the order is **#10 → #13 → #16**, with **#7 and #11** going upstream rather than being
-fixed here. Reasoning for each is under "Remaining work" below.
+Reasoning for each remaining item is under "Remaining work" below.
 
 ---
 
@@ -254,7 +311,10 @@ user with the defaults.
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
-| 13 | Device-code login: dead expiry check, no timeout | S | Low | Med | Open |
+| ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
+| 38 | Device response missing `interval` kills the process | XS | Low | Low–Med | Open — split from PR #37's review |
+| 39 | `login_flow()` re-issues device codes forever | S | Low | Med | Open — split from PR #37's review |
+| 40 | Token-endpoint error body logged verbatim | XS | Low | Low | Open — split from PR #37's review |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
 | 11 | Bet sizing and filtering bugs | S–M | **Zero** | High | Open — upstream candidate |
@@ -329,10 +389,20 @@ inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set on the repository. It t
 unconditionally, so a `workflow_dispatch` from any branch would republish `latest` — inherited
 behaviour, deliberately left.
 
-### #13 — device-code login
+### #38, #39, #40 — what #13 left behind
 
-Small, but low value here: valid cookies in `cookies/roope242.pkl` mean this path is rarely
-touched. Reasonable to batch with an upstream submission rather than do standalone.
+All three split out of PR #37's second review. #39 is the one with teeth: `login_flow()`'s outer
+`while True` re-requests a device code after every expiry, so it never gives up and a headless
+deployment that loses its cookies presents as a hang rather than a login failure. #38 is a bare
+`KeyError` on a device response missing `interval` — the same shape of bug PR #37 fixed for a
+missing `user_code`, one field over, in the same method, which makes it a natural companion branch.
+#40 is a logging-hygiene fix resting on a response shape nobody has observed; the issue says so.
+
+The estimate for #13 in the table below said "S / Low" and was wrong in an instructive way: the
+four filed defects were all real and all small, but two more fell out of fixing them, and the
+second-order work — a restructured `Twitch.login()`, a new exception on failed login, eleven tests
+— was most of the branch. **A fix in a path nothing else guards tends to cost more than its
+diff.**
 
 ### #16 — startup sequencing
 
@@ -351,6 +421,31 @@ worth saying in the PR.
 ---
 
 ## Done, and what each one taught
+
+### #13 — device-code login (PR #37, `65662aa`)
+
+The four filed defects, plus the aliased `post_data` the expiry fix made reachable and the silent
+token-less `login()` the corrupt-cookie recovery routed into. Eleven tests in
+`tests/test_twitch_login.py`; live-verified in the container (7m01s, both WebSockets, `+10` on a
+real WATCH). The three review passes are written up under "In flight" above. Four things worth
+carrying forward:
+
+- **A broad `except` is a decision about what you are willing to misdiagnose.** This session asked
+  for `except Exception` around `pickle.load` to cover every corruption shape; it also swallowed
+  `PermissionError`, so a *valid* cookies file with the wrong mode was announced as corrupt and
+  traded for a device-code login nobody could complete headlessly. The fix is `except OSError:
+  raise` ahead of the broad catch — but the lesson is that the instruction to broaden came from
+  the reviewer's side of the desk, and no one checked it against the cases it would newly capture.
+- **Removing a crash is not the same as handling a failure.** Replacing an uncaught
+  `UnpicklingError` with a recovery path looked like strict improvement, and was worse: the
+  recovery could finish with no token, and `run()` does not check, so the miner mined nothing while
+  reporting "0 followers" — forever, on every start. A loud crash beats a quiet wrong state.
+- **`logger.error` is not an exit.** Both `login()` branches logged and carried on. The log line
+  makes it *look* handled while the process continues in a state that cannot work.
+- **The session's own PR body overstated its verification** — "every new assertion was confirmed
+  failing against the pre-fix source", when two of nine pass at base. Nobody was lying; the claim
+  was written once, early, and stayed true-sounding after the test set grew. Re-check the
+  verification sentence against the final test list, not the one it described when written.
 
 ### #10 — PubSub reconnection (PR #31, `6d98a16`)
 
@@ -560,6 +655,18 @@ works from a checkout regardless of packaging.
   hand. The one that gets skipped and shouldn't is **Not verified**: an issue that quietly implies
   it was reproduced sends the next session hunting for a repro that never existed. #36 is the
   worked example.
+
+  **Always pass `--label`.** `gh issue create` applies none by default and the template's Kind
+  dropdown is body text, not a label, so an agent-filed issue lands unlabelled and invisible to
+  every filter. Map Kind onto the repo's labels: *Defect* → `bug`, *Feature* → `enhancement`,
+  *Documentation* → `documentation`, and the rest → `enhancement` unless a better one exists
+  (`gh label list`). Asked for on 2026-08-05, after #38–#40 were filed bare and relabelled by hand.
+
+- **A finding the iteration cap leaves unfixed gets evaluated for its own issue, not dropped.**
+  Reaching the limit ends the patching, not the finding. For each one, decide out loud: file it, or
+  say why it is not worth filing. The same goes for anything a review parked as "info" or
+  "follow-up". #38, #39 and #40 came out of PR #37 this way — all three were real, none justified a
+  fifth iteration on that branch.
 
 - **Every code fix goes through a PR, and the review is a fresh-context agent.** Branch off
   `master`, commit, push, `gh pr create` against `roope242/master`. Then spawn the `pr-reviewer`

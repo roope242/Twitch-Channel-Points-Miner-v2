@@ -312,8 +312,12 @@ git cherry-pick <sha>
 gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
 ```
 
-Every `gh` command needs `--repo roope242/Twitch-Channel-Points-Miner-v2`. With `upstream` as a
-remote, bare `gh pr view`/`gh pr list` resolve there and report a fork PR as nonexistent.
+Bare `gh` resolves to the fork since `gh repo set-default roope242/Twitch-Channel-Points-Miner-v2`
+was run (2026-08-05, `remote.origin.gh-resolved = base` in `.git/config` — local to the clone, not
+committed). Without it, `upstream` being a remote made `gh pr view`/`gh pr list` resolve *there*
+and report a fork PR as nonexistent. A fresh clone needs the command again, or `--repo` on every
+call. **Anything aimed at upstream still needs `--repo rdavydov/...` explicitly** — the default no
+longer falls through to the parent by accident, which is the safer direction.
 
 Fork PR bodies must state the code was written by an AI agent. **Upstream PR bodies must not raise
 it** — omit, never misrepresent, since some maintainers reject AI-authored PRs on sight. The
