@@ -141,11 +141,11 @@ class TwitchLogin(object):
                     sleep(interval)
                     login_response = self.send_oauth_request(
                         "https://id.twitch.tv/oauth2/token", token_post_data)
-                    if datetime.now(timezone.utc) >= expires_at:
-                        logger.error("Code expired. Try again")
-                        break
                     # 200 means success, 400 means the user haven't entered the code yet
                     if login_response.status_code != 200:
+                        if datetime.now(timezone.utc) >= expires_at:
+                            logger.error("Code expired. Try again")
+                            break
                         continue
                     # {
                     #     "access_token": "40 chars [A-Za-z0-9]",
@@ -351,6 +351,12 @@ class TwitchLogin(object):
         try:
             with open(cookies_file, "rb") as f:
                 self.cookies = pickle.load(f)
+        except OSError:
+            # A real I/O failure (e.g. permissions) on an otherwise valid
+            # file -- let it propagate with its own diagnosis rather than
+            # being reported as corrupt, which would throw away good
+            # credentials and fall back to a device-code login.
+            raise
         except Exception as e:
             # Truncation raises UnpicklingError/EOFError; a bad protocol byte
             # raises ValueError; a pickle referencing a class that no longer

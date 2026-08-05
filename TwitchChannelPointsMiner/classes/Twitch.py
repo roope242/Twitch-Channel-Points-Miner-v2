@@ -101,10 +101,8 @@ class Twitch(object):
 
         try:
             self.twitch_login.load_cookies(self.cookies_file)
-        except WrongCookiesException:
-            logger.error(
-                f"Cookies file {self.cookies_file} is corrupt, logging in again.."
-            )
+        except WrongCookiesException as e:
+            logger.error(f"{e}, logging in again..")
             if self.twitch_login.login_flow():
                 self.twitch_login.save_cookies(self.cookies_file)
             return

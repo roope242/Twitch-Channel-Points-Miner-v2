@@ -30,14 +30,28 @@ And `load_cookies`'s corruption catch is broadened from `(UnpicklingError,
 EOFError)` to `Exception`, since a bad protocol byte raises `ValueError` and a
 pickle referencing a missing class raises `AttributeError`/
 `ModuleNotFoundError` -- the recovery is the same for all of them.
+
+Two more, from review of the above:
+
+- That broadened `except Exception` also swallowed real I/O errors (e.g. a
+  cookies file that exists but isn't readable), reporting a perfectly good
+  file as "corrupt" and throwing away good credentials in favor of a
+  device-code login nobody can complete headlessly. `OSError` now propagates
+  ahead of the broad catch.
+- The expiry check ran before the status/access_token check, so a token
+  arriving in the same round-trip as expiry was discarded. It now only fires
+  on a non-200 response, so a 200 always gets its access_token/error handling
+  first.
 """
 
+import os
 import pickle
 
 import pytest
 
 import TwitchChannelPointsMiner.classes.TwitchLogin as twitch_login_module
 from TwitchChannelPointsMiner.classes.Exceptions import WrongCookiesException
+from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.TwitchLogin import TwitchLogin
 
 
@@ -60,6 +74,14 @@ class _FakeResponse:
 
 def make_login():
     return TwitchLogin("client-id", "device-id", "some-user", "agent")
+
+
+def make_twitch(tmp_path, monkeypatch, username="some-user"):
+    # Twitch.__init__ only creates a "cookies" directory under the current
+    # working directory and constructs a TwitchLogin -- no network -- so it's
+    # safe offline as long as cwd is a throwaway directory.
+    monkeypatch.chdir(tmp_path)
+    return Twitch(username, "agent")
 
 
 def test_poll_loop_exits_after_code_expires(monkeypatch):
@@ -218,3 +240,111 @@ def test_missing_user_code_sleeps_before_retry(monkeypatch):
     assert result is False
     assert calls == 2
     assert sleep_calls == [5]
+
+
+def test_poll_success_at_expiry_still_returns_token(monkeypatch):
+    twitch_login = make_login()
+    # __set_user_id() would otherwise make a real HTTP request.
+    monkeypatch.setattr(TwitchLogin, "check_login", lambda self: True)
+
+    device_calls = 0
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal device_calls
+        if url.endswith("/device"):
+            device_calls += 1
+            if device_calls > 1:
+                # Bounds a pre-fix run -- which discards the token and asks
+                # for a fresh code -- into a clean failure instead of a hang.
+                return _FakeResponse(500, {})
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 0,
+                    "expires_in": 0,
+                },
+            )
+        # A 200 carrying an access_token, landing exactly at expires_at.
+        return _FakeResponse(200, {"access_token": "REAL-TOKEN"})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    result = twitch_login.login_flow()
+
+    assert result is True
+    assert twitch_login.token == "REAL-TOKEN"
+
+
+def test_login_recovers_from_corrupt_cookies_file(tmp_path, monkeypatch):
+    twitch = make_twitch(tmp_path, monkeypatch)
+    with open(twitch.cookies_file, "wb") as f:
+        f.write(b"not a pickle")
+
+    login_flow_called = False
+
+    def fake_login_flow(self):
+        nonlocal login_flow_called
+        login_flow_called = True
+        self.token = "fresh-token"
+        return True
+
+    monkeypatch.setattr(TwitchLogin, "login_flow", fake_login_flow)
+
+    twitch.login()
+
+    assert login_flow_called is True
+    # The corrupt file was replaced with a loadable one carrying the fresh
+    # session, not left corrupt and not silently skipped.
+    reloaded = make_login()
+    reloaded.load_cookies(twitch.cookies_file)
+    assert reloaded.get_cookie_value("auth-token") == "fresh-token"
+
+
+def test_login_loads_valid_cookies_without_login_flow(tmp_path, monkeypatch):
+    twitch = make_twitch(tmp_path, monkeypatch)
+    twitch.twitch_login.token = "saved-token"
+    twitch.twitch_login.user_id = 99
+    twitch.twitch_login.save_cookies(twitch.cookies_file)
+
+    def fail_login_flow(self):
+        raise AssertionError("login_flow must not run for a valid cookies file")
+
+    monkeypatch.setattr(TwitchLogin, "login_flow", fail_login_flow)
+
+    # A second instance, the way a real restart would create one.
+    twitch_restarted = Twitch("some-user", "agent")
+    twitch_restarted.login()
+
+    assert twitch_restarted.twitch_login.token == "saved-token"
+
+
+def test_login_propagates_permission_error_not_reported_as_corrupt(
+    tmp_path, monkeypatch
+):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores file permission bits")
+
+    twitch = make_twitch(tmp_path, monkeypatch)
+    twitch.twitch_login.token = "saved-token"
+    twitch.twitch_login.save_cookies(twitch.cookies_file)
+    os.chmod(twitch.cookies_file, 0o000)
+
+    # On the pre-fix source a PermissionError here is swallowed and reported
+    # as "corrupt", falling through to a real, unpatched login_flow() -- a
+    # live network call. Patch it so that path fails fast/offline instead of
+    # hanging, while asserting it must never even be reached.
+    def fail_login_flow(self):
+        raise AssertionError(
+            "login_flow must not run -- the PermissionError should propagate"
+        )
+
+    monkeypatch.setattr(TwitchLogin, "login_flow", fail_login_flow)
+
+    try:
+        with pytest.raises(PermissionError):
+            twitch.login()
+    finally:
+        os.chmod(twitch.cookies_file, 0o600)
