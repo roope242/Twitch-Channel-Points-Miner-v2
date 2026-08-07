@@ -1,4 +1,10 @@
-# The image needs only requirements.txt and TwitchChannelPointsMiner/ (see Dockerfile).
+# The runtime image needs only requirements.txt and TwitchChannelPointsMiner/; the
+# `test` stage additionally needs requirements-dev.txt, tests/ and conftest.py (see
+# Dockerfile). requirements-dev.txt is simply never excluded; tests/ and conftest.py
+# are excluded above and re-admitted at the bottom. If you ever add a pattern that
+# catches requirements-dev.txt, it needs re-admitting there too or the test stage
+# stops building. Nothing the test stage uses reaches the published image -- the
+# runtime stage does not COPY it.
 # Named .dockerignore rather than .containerignore so docker and podman both honour it.
 
 # Credentials and runtime state -- never send these to a builder.
@@ -12,8 +18,13 @@ analytics/
 .git/
 .github/
 .claude/
-__pycache__/
-*.pyc
+# `**/` is load-bearing: a bare `__pycache__/` matches only at the context root, so
+# without it TwitchChannelPointsMiner/**/__pycache__ was copied into the published
+# image -- host bytecode (3.14 here) inside an image running 3.10. Harmless at
+# runtime, but it made a hand-built image differ from a CI-built one, which defeats
+# the point of testing the image that ships.
+**/__pycache__/
+**/*.pyc
 .pytest_cache/
 tests/
 conftest.py
@@ -28,3 +39,15 @@ assets/
 scripts/
 DELETE_PYCACHE.bat
 pickle_view.py
+
+# Re-admitted for the `test` stage only. These sit last because the final
+# matching pattern wins, so they override the exclusions above.
+!tests/
+!conftest.py
+# ...but `!tests/` re-admits everything under it, including the bytecode the
+# `**/` patterns above exist to exclude, so re-exclude those. And the JS half
+# runs in its own runner: node_modules must never be sent to a builder
+# regardless of how it got back in.
+tests/**/__pycache__/
+tests/**/*.pyc
+tests/js/node_modules/

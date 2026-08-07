@@ -14,7 +14,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        # 3.9 is this fork's declared floor and 3.13 the current release;
+        # 3.10 is what the published Docker image runs, so a 3.10-only
+        # failure would otherwise pass CI and break the image (#33).
+        python-version: ["3.9", "3.10", "3.13"]
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -34,6 +37,42 @@ jobs:
         # the repo root on sys.path, and the package is not pip-installed here. The
         # script form fails at collection with ModuleNotFoundError.
         run: python -m pytest tests/ -v
+
+  container:
+    name: Container (3.10, as published)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Run the suite in the image
+        # The script, not an inlined docker command: it is what CLAUDE.md
+        # documents for local use, and running anything else here is how the
+        # documented command and the gating command drift apart (#27).
+        run: scripts/test-container.sh
+
+      - name: A bare build must still produce the runtime image
+        # The test stage is deliberately not last, because the last stage is
+        # what `docker build .` and deploy-docker.yml publish. Reordering the
+        # stages would silently ship an image carrying pytest and the tests.
+        run: |
+          docker build -t tcpm:runtime .
+          entrypoint=$(docker image inspect tcpm:runtime \
+            --format '{{index .Config.Entrypoint 0}} {{index .Config.Entrypoint 1}}')
+          echo "entrypoint: $entrypoint"
+          test "$entrypoint" = "python run.py"
+          # pytest present in the runtime image means the test stage leaked in.
+          # Assert on the *message*, not on a non-zero exit: `! docker run ...`
+          # would also pass if the image vanished or had no shell, so the guard
+          # would rot into a no-op without anyone noticing.
+          probe=$(docker run --rm --entrypoint sh tcpm:runtime \
+            -c 'python -c "import pytest" 2>&1 || true')
+          echo "probe: $probe"
+          case "$probe" in
+            *"No module named 'pytest'"*) ;;
+            *) echo "runtime image can import pytest, or the probe broke"; exit 1 ;;
+          esac
 
   javascript:
     name: JS (jsdom)

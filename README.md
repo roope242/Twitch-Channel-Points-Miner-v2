@@ -368,13 +368,24 @@ Start mining! `python run.py` 🥳
 
 #### Running the tests
 
-Development dependencies are in `requirements-dev.txt`. Both suites run offline — no Twitch account needed — and both run in CI on every pull request:
+Development dependencies are in `requirements-dev.txt`. None of these needs a Twitch account, and all of them run in CI on every pull request:
 
 ```sh
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q          # Python
-cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
+python -m pytest tests/ -q                # Python
+scripts/test-container.sh                 # the Python suite inside the Docker image that ships
+(cd tests/js && npm ci && node --test)    # dashboard JavaScript, in jsdom
 ```
+
+Run these from the repository root. The jsdom line is wrapped in a subshell so the `cd` does not
+leak into anything you paste after it.
+
+Only the first line runs fully offline. The container run needs podman or docker **and network** —
+it builds the `Dockerfile`'s `test` stage, pulling the base image and installing from PyPI. That
+stage is the runtime image plus pytest, so it exercises the same Python 3.10 and the same resolved
+`requirements.txt` the published image has. It takes pytest arguments
+(`scripts/test-container.sh tests/test_utils.py -q`) and exits with pytest's status. The jsdom line
+needs network too, for `npm ci` on first run.
 
 ### Docker
 
