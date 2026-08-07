@@ -9,7 +9,18 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-07 — **#42, #43 and #40 closed** (PR #44, merge commit `2022dc8`).
+**Last updated:** 2026-08-07, later — **#33 closed** (PR #47, merge commit `2397ca2`). Three CI
+legs now cover what ships: `"3.10"` joined the matrix, and a `test` stage in the `Dockerfile` plus
+`scripts/test-container.sh` runs the suite inside the runtime image's own base and resolved
+requirements. CI runs the script itself, so the documented command and the gating command cannot
+drift. Three review passes, **the iteration cap reached** — the third pass's three findings were
+applied without a fourth review because all three were one-line doc/ignore fixes that the *second*
+round of fixes had introduced. Two things worth carrying: `.dockerignore`'s `__pycache__/` matched
+only at the context root, so host 3.14 bytecode had been shipping inside the 3.10 image (68 files
+vs 37), and `!tests/` then re-admitted it one commit later — **last-match-wins cuts both ways**.
+`pr-reviewer` gained a secrets/unwanted-files pass and **#46 filed** on the Python support floor.
+
+Previously, 2026-08-07 — **#42, #43 and #40 closed** (PR #44, merge commit `2022dc8`).
 `login_flow()`'s device endpoint now bounds every way it can fail: a request that never completes,
 a non-200, a 200 that isn't JSON, and a 200 that parses to something unusable each spend one
 attempt, log one specific line, and exit through the same give-up path. The token-endpoint error
@@ -99,7 +110,9 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `2022dc8` | Clean, pushed. Only branch, local and remote. |
+| `master` | `2397ca2` | Clean, pushed. Only branch, local and remote. |
+| **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
+| **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
 | **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
 | **#45** | filed 2026-08-07 | Open, unscheduled. The token endpoint's three gaps, split out of PR #44's reviews rather than widened into it. |
 | **PR #41** — issues #39 + #38, bounded login | merge commit `aef9778` | **Merged 2026-08-05.** Four review passes; CI green on 3.9/3.13/node. Not live-verified — valid cookies skip `login_flow()` entirely, so the container run proves only that startup still works. |
@@ -121,6 +134,35 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+
+### PR #47's three passes, and the cap being reached honestly
+
+The first pass found three real things; the second found two, one of which was a **pre-existing leak
+this PR's own premise made intolerable** — `__pycache__/` in `.dockerignore` matches only at the
+context root, so `TwitchChannelPointsMiner/**/__pycache__` had been going into the published image
+all along: 68 files instead of 37, host 3.14 bytecode inside a 3.10 runtime. Harmless at runtime,
+but it meant a hand-built image and a CI-built one differed, which is precisely what "test the image
+that ships" is supposed to remove. **Building the artifact under a check is what found it; three
+prior sessions had built this image and none had counted the files.**
+
+The third pass found three more, and all three were introduced by the *second* round of fixes:
+`!tests/` re-admitted the bytecode the new `**/` patterns had just excluded, reordering the doc
+blocks made "the first two suites run offline" name the one that pulls from PyPI, and a new comment
+claimed 51 tests where the container reports 50 + 1 skipped. **Last-match-wins cuts both ways** —
+the same `.dockerignore` rule that made the fix work undid it one section lower.
+
+Those three were applied **without a fourth review pass**, deliberately: the cap had been reached,
+all three were one-line doc/ignore changes, and each was verified observationally on its own (image
+rebuilt and file-counted, doc block pasted into a shell from the repo root). The cap limits
+review→fix cycles, not fixes; spending a fourth flagship review on three comment lines would have
+been the grinding the rule exists to stop.
+
+Also on the record: **a command that goes into `CLAUDE.md` gets run first.** The leak-detection
+one-liner added to the upstream section was written as
+`git diff --name-only --diff-filter=A base...HEAD | git check-ignore --stdin --verbose`, which
+*silently does nothing* — `check-ignore` consults the index by default and says nothing about
+tracked files, i.e. every file in a commit. Caught by force-adding a `cookies/*.pkl` to a scratch
+branch and watching it pass. `--no-index` is required.
 
 ### PR #44's two review passes, and the claim the first one checked
 
@@ -310,11 +352,14 @@ user hits before anything else works.
 `2022dc8`) — the batching argument below was taken and it paid: one session, two review passes,
 one extra defect found and fixed in-branch.
 
-**#33 is next, and the case for it is now unopposed.** The published Docker image runs **Python
-3.10**; CI tests 3.9 and 3.13. The runtime that actually ships is the one nothing covers, so a
-3.10-only failure passes CI and breaks the image. Everything after it gets verified more cheaply
-once it exists. The counter-argument that beat it last time — three cheap issues sitting in one
-freshly-read method — is spent.
+**#33 is closed** (PR #47, `2397ca2`). It paid immediately: building the image for the first time
+under a check showed host bytecode had been shipping inside it.
+
+**#46 is the natural next one, and #33 is what makes it affordable.** The declared floor
+(`python_requires>=3.9`) is past EOL and the image's 3.10 is close behind; the question that decides
+the effort — does the pinned dependency set resolve on a newer base — is now one edit to
+`scripts/test-container.sh` away from being answered rather than a research project. Start there,
+before touching `setup.py`.
 
 **#45 is the natural companion to the login work and is deliberately not next.** It is the same
 three fixes PR #44 made, at the token endpoint instead of the device one, and PR #44's own review
@@ -385,7 +430,8 @@ user with the defaults.
 | ~~32~~ | `submit()` overfills a connection during a reconnect | S–M | Low–Med | Med | **Closed** — PR #35, `888c375` |
 | ~~29~~ | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | **Closed** — `90797a3` |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
-| 33 | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | Open |
+| ~~33~~ | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | **Closed** — PR #47, `2397ca2` |
+| 46 | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | Open — filed 2026-08-07 |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |

@@ -340,6 +340,36 @@ git cherry-pick <sha>
 gh pr create --repo rdavydov/Twitch-Channel-Points-Miner-v2 --base master --head roope242:<branch>
 ```
 
+**Run `pr-reviewer` on the upstream branch before `gh pr create`, not after.** On a fork PR the
+review happens after opening, because a mistake is fixable with another commit. Upstream it is not:
+the branch is public the moment it is pushed, the PR is cross-fork, and *anything* that goes out
+stays in the history whether or not the PR is merged, closed, or force-pushed over. Two specific
+things it is there to catch, both of which have nearly happened here:
+
+- **Credentials and runtime state.** This repo's own gitignore is the list — `cookies/*.pkl` is a
+  live Twitch OAuth session, `run.py` holds the username, and `logs/` and `analytics/` are full of
+  both. `check_assets()` copies five dashboard files into the working-directory `assets/` on every
+  start, so a live run dirties the tree right before the commit you are about to cherry-pick; the
+  #10 entry below records that landing in a commit for real.
+- **Fork-only files.** Everything listed at the top of this section. A cherry-pick that quietly
+  brings `CLAUDE.md` or `tests/` along tells the maintainer more about this fork's process than the
+  fix tells them about their bug.
+
+Give it the base (`upstream/master`) and the head, same as any review, and read the publish-pass
+result specifically. The one-line version, if you want to check before spawning anything:
+
+```bash
+git diff --name-only --diff-filter=A upstream/master...HEAD \
+  | git check-ignore --stdin --verbose --no-index
+```
+
+Any output at all means a file was force-added past a `.gitignore` rule, and the output names the
+rule. **`--no-index` is not optional and this is not obvious:** by default `git check-ignore`
+consults the index and stays silent about files that are already tracked — which is every file in a
+commit, i.e. precisely the ones being checked. Verified 2026-08-07 by force-adding a
+`cookies/*.pkl` to a branch: without the flag the check printed nothing and exited 1 (
+"clean"); with it, `.gitignore:151:cookies/*  cookies/leaktest.pkl`, exit 0.
+
 Bare `gh` resolves to the fork since `gh repo set-default roope242/Twitch-Channel-Points-Miner-v2`
 was run (2026-08-05, `remote.origin.gh-resolved = base` in `.git/config` — local to the clone, not
 committed). Without it, `upstream` being a remote made `gh pr view`/`gh pr list` resolve *there*
