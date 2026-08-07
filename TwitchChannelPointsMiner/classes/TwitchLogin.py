@@ -113,9 +113,6 @@ class TwitchLogin(object):
                 f"Trying the TV login method.. (attempt {attempt}/{MAX_DEVICE_CODE_ATTEMPTS})"
             )
 
-            login_response = self.send_oauth_request(
-                "https://id.twitch.tv/oauth2/device", post_data)
-
             # {
             #     "device_code": "40 chars [A-Za-z0-9]",
             #     "expires_in": 1800,
@@ -124,16 +121,62 @@ class TwitchLogin(object):
             #     "verification_uri": "https://www.twitch.tv/activate"
             # }
 
-            if login_response.status_code != 200:
-                logger.error("TV login response is not 200. Try again")
-                break
-
-            login_response_json = login_response.json()
-            # A 200 whose body is not an object at all -- `null`, a list, a
-            # bare string -- reaches here too, and .get() would raise on it.
-            # post_gql_request has met `data: null` from Twitch for real.
-            fields = login_response_json if isinstance(
-                login_response_json, dict) else {}
+            # A request that never completed, a non-200, and a body that
+            # isn't JSON at all all leave nothing usable to read -- spend an
+            # attempt and retry exactly like the malformed-body case below,
+            # instead of aborting the whole login on the first blip.
+            # already_logged skips the generic "Unexpected TV login
+            # response" log further down for these three, since each already
+            # produced its own, more specific line.
+            already_logged = False
+            fields = {}
+            try:
+                login_response = self.send_oauth_request(
+                    "https://id.twitch.tv/oauth2/device", post_data)
+            except requests.exceptions.RequestException as e:
+                # __init__'s is_connected() loop returned minutes ago, so it
+                # is no protection here: a DNS or TCP failure at this moment
+                # used to leave login_flow() as a bare traceback.
+                logger.error(f"TV login request failed, retrying: {e}")
+                already_logged = True
+            else:
+                if login_response.status_code != 200:
+                    logger.error(
+                        "TV login response was not 200 (status "
+                        f"{login_response.status_code}), retrying"
+                    )
+                    already_logged = True
+                else:
+                    try:
+                        login_response_json = login_response.json()
+                    except ValueError:
+                        # requests.exceptions.JSONDecodeError subclasses
+                        # ValueError (and this also covers older requests
+                        # versions, which raised a bare ValueError here). A
+                        # proxy or CDN can answer 200 with a body that isn't
+                        # JSON at all -- an HTML error page, say -- which
+                        # never reaches the isinstance check below because it
+                        # never becomes a value at all. That's different from
+                        # a 200 that parses fine but to something *unusable*
+                        # (`null`, a list, a bare string), which the isinstance
+                        # check does catch. Truncate before logging either
+                        # way: an HTML error page must not go whole into the
+                        # log file.
+                        logger.error(
+                            "TV login response was not JSON, retrying: "
+                            f"{login_response.text[:200]!r}"
+                        )
+                        already_logged = True
+                    else:
+                        # A 200 whose body is not an object at all -- `null`,
+                        # a list, a bare string -- reaches here too, and
+                        # .get() would raise on it. post_gql_request has met
+                        # `data: null` from Twitch for real.
+                        fields = (
+                            login_response_json
+                            if isinstance(login_response_json, dict)
+                            else {}
+                        )
             user_code = fields.get("user_code")
             device_code = fields.get("device_code")
             interval = fields.get("interval")
@@ -196,15 +239,25 @@ class TwitchLogin(object):
                 # raise RequestInvalid()
                     else:
                         err_code = login_response_json.get("error_code")
+                        err_message = login_response_json.get("message")
 
-                        logger.error(f"Unknown error: {login_response_json}")
+                        # The body is the one response class that can
+                        # plausibly carry a credential, and file_level
+                        # defaults to DEBUG -- log a diagnostic shape, not
+                        # the payload itself (#40).
+                        logger.error(
+                            "Unknown error from token endpoint: "
+                            f"error_code={err_code!r} message={err_message!r} "
+                            f"keys={sorted(login_response_json.keys())}"
+                        )
                         raise NotImplementedError(
                             f"Unknown TwitchAPI error code: {err_code}"
                         )
             else:
-                logger.error(
-                    f"Unexpected TV login response, retrying: {login_response_json}"
-                )
+                if already_logged is False:
+                    logger.error(
+                        f"Unexpected TV login response, retrying: {login_response_json}"
+                    )
                 # No point waiting out the interval on the last attempt --
                 # there is nothing left to retry, only the give-up below.
                 if attempt < MAX_DEVICE_CODE_ATTEMPTS:
