@@ -356,7 +356,7 @@ If `followers=True` and you follow new channels while the miner is running, you 
 
 ### By cloning the repository
 1. Clone this repository `git clone https://github.com/roope242/Twitch-Channel-Points-Miner-v2`
-2. Install all the requirements `pip install -r requirements.txt` . **Python 3.14 or newer is required.** You could also try to create a _virtualenv_ and then install all the requirements
+2. Install all the requirements `pip install -r requirements.txt` . **Python 3.14 or newer is required.** That is the version this fork tests and ships; it tracks only Python releases upstream CPython still patches. Older interpreters are not tested and not supported — note that Termux's `pkg install python` may still be behind, in which case use the Docker image instead. You could also try to create a _virtualenv_ and then install all the requirements
 ```sh
 pip install virtualenv
 virtualenv -p python3 venv
