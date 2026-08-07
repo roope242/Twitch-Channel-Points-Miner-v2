@@ -9,7 +9,17 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-07, later — **#33 closed** (PR #47, merge commit `2397ca2`). Three CI
+**Last updated:** 2026-08-08 — **#46 closed** (PR #48, merge commit `605e0b2`). The Python floor
+is **3.14** everywhere: `Dockerfile` base, `setup.py` `python_requires`, CI matrix, README. It is a
+*policy* floor, not a technical one — nothing in the code needs past 3.9's `removesuffix` — and the
+policy is "support only what upstream CPython still patches". #33's container lane is what made this
+cheap: the dependency question was settled with one command. **The interpreter drags the pinned set
+with it** — `requirements.txt` pins nothing, so 3.14 resolves pandas 3.0.5 / numpy 2.5.1, and those
+two were the *only* requirements the 3.10 base had been capping. Two review passes, second CLEAN.
+Live-verified: 7m24s container run, both WebSockets, zero errors. **#49 filed** (empty analytics
+list → 500). Image 324 MB → 336 MB.
+
+Previously, 2026-08-07, later — **#33 closed** (PR #47, merge commit `2397ca2`). Three CI
 legs now cover what ships: `"3.10"` joined the matrix, and a `test` stage in the `Dockerfile` plus
 `scripts/test-container.sh` runs the suite inside the runtime image's own base and resolved
 requirements. CI runs the script itself, so the documented command and the gating command cannot
@@ -110,7 +120,9 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `2397ca2` | Clean, pushed. Only branch, local and remote. |
+| `master` | `605e0b2` | Clean, pushed. Only branch, local and remote. |
+| **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
+| **#49** | filed 2026-08-08 | Open, unscheduled. `filter_datas` guards a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
 | **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
@@ -134,6 +146,36 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+
+### PR #48, and what the container lane bought immediately
+
+#33 predicted that #46's cost hinged on one unanswered question — does the pinned dependency set
+resolve on a newer base — and that the container lane would make it cheap. It did: one
+`TCPM_TEST_PYTHON` build answered it, and the rest of the change was mechanical. **That is the
+argument for building tooling before the work it serves**, and it is worth remembering the next
+time a tooling issue loses a prioritisation argument to a user-visible one.
+
+Three things to carry forward:
+
+- **A base-image bump is a dependency bump.** `requirements.txt` pins nothing, so moving 3.10 → 3.14
+  moved `pandas` 2.x → **3.0.5** and `numpy` → **2.5.1**. The review established these were the
+  *only* two requirements the old base had been capping (`pandas` needs ≥3.11, `numpy` ≥3.12;
+  everything else already resolved identically). Check that before assuming an interpreter bump is
+  just an interpreter bump.
+- **The thing I called "the real risk" was dead code.** `aggregate()`'s `pd.Grouper(freq="30Min")`
+  was the pandas-3.0 hazard the PR body led with — and `aggregate()` has no callers anywhere in the
+  repo. The live paths are `filter_datas`, `read_json` and `json_all`, which the review exercised
+  over real HTTP against a 20,000-point series. **Grep for callers before nominating something as
+  the risk**; the PR body was corrected rather than quietly left.
+- **The floor is policy, not necessity.** `ast.parse(feature_version=(3,9))` over the whole package
+  still passes — `removesuffix` remains the only 3.9-ism. So nothing forces 3.14 and nothing will
+  break if a future session needs to reason about what the code actually requires. The reason to
+  keep the floor high is that new code may then use new APIs without a discussion.
+
+Also: the dashboard now has evidence behind it for the first time. It has no Python tests, and the
+review drove it with Flask's `test_client` from a scratch cwd (necessary — `check_assets()` writes
+`./assets/` into the working directory). That technique is how #49 was found, and it is what any
+future dashboard work should start from.
 
 ### PR #47's three passes, and the cap being reached honestly
 
@@ -355,11 +397,13 @@ one extra defect found and fixed in-branch.
 **#33 is closed** (PR #47, `2397ca2`). It paid immediately: building the image for the first time
 under a check showed host bytecode had been shipping inside it.
 
-**#46 is the natural next one, and #33 is what makes it affordable.** The declared floor
-(`python_requires>=3.9`) is past EOL and the image's 3.10 is close behind; the question that decides
-the effort — does the pinned dependency set resolve on a newer base — is now one edit to
-`scripts/test-container.sh` away from being answered rather than a research project. Start there,
-before touching `setup.py`.
+**#46 is closed** (PR #48, `605e0b2`), and the prediction held exactly: the dependency question was
+one command, and answering it first is what kept the rest small.
+
+**Nothing is scheduled next.** The remaining open list is #49, #36, #26, #24 and #16, with **#7 and
+#11** going upstream rather than being fixed here. #49 is the cheapest (two characters per site, at
+three sites) and the only one that is a live defect rather than tooling or polish; #45 (the token
+endpoint's three gaps) is still the best candidate if a login problem is ever reported.
 
 **#45 is the natural companion to the login work and is deliberately not next.** It is the same
 three fixes PR #44 made, at the token endpoint instead of the device one, and PR #44's own review
@@ -431,7 +475,8 @@ user with the defaults.
 | ~~29~~ | Inherited badge workflows fail every day | XS | n/a — tooling | n/a | **Closed** — `90797a3` |
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | ~~33~~ | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | **Closed** — PR #47, `2397ca2` |
-| 46 | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | Open — filed 2026-08-07 |
+| ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
+| 49 | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | Open — split from PR #48's review |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
