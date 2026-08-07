@@ -855,10 +855,16 @@ works from a checkout regardless of packaging.
   knowledge lives in `CLAUDE.md`, not in the agent** — that is the split; do not push repo-specific
   verification tricks back into the agent file.
 
-  Adding or editing an agent under `.claude/agents/` or `~/.claude/agents/` does **not** register it
-  in the running session: `subagent_type: pr-reviewer` fails with "Agent type not found" until
-  Claude Code reloads. Until then, spawn the generic agent and point it at the file as its
-  operating instructions — same model, same result.
+  **Adding** a *new* agent under `.claude/agents/` or `~/.claude/agents/` does not register it in
+  the running session: `subagent_type: <new-name>` fails with "Agent type not found" until Claude
+  Code reloads. Until then, spawn the generic agent and point it at the file as its operating
+  instructions — same model, same result.
+
+  **Editing an agent that is already registered is different, and this line used to conflate the
+  two.** Corrected 2026-08-08: a secrets/unwanted-files pass was added to `~/.claude/agents/
+  pr-reviewer.md` mid-session and the very next spawn ran it, reporting the new section by name. So
+  an edit to an existing agent takes effect on the next spawn, with no reload. Worth knowing
+  because the old wording discouraged improving the agent mid-session.
 
 - **Why this replaced CodeRabbit (2026-08-01).** It runs on the Claude subscription instead of a
   third-party quota, so a session can no longer be blocked mid-flight — which is exactly what
