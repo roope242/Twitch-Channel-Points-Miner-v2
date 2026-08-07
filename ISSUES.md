@@ -9,7 +9,18 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-05, second session of the day — **#39 and #38 closed** (PR #41, merge
+**Last updated:** 2026-08-07 — **#42, #43 and #40 closed** (PR #44, merge commit `2022dc8`).
+`login_flow()`'s device endpoint now bounds every way it can fail: a request that never completes,
+a non-200, a 200 that isn't JSON, and a 200 that parses to something unusable each spend one
+attempt, log one specific line, and exit through the same give-up path. The token-endpoint error
+body is logged as `error_code`/`message`/sorted key names instead of verbatim, so a `refresh_token`
+can no longer land in `logs/<username>.log`. Two review passes. The first found nothing wrong with
+the change but caught the commit title's claim — "bound *every* device-endpoint failure" — being
+literally false: `send_oauth_request` itself was outside every guard, so a DNS blip was still a
+bare traceback. That was fixed in-branch as the one widening the scope justified. **#45 filed**:
+the token endpoint still has all three gaps the device endpoint no longer has. Nothing in flight.
+
+Previously, 2026-08-05, second session of the day — **#39 and #38 closed** (PR #41, merge
 commit `aef9778`). `login_flow()` is bounded now: three device codes, then `False`, which
 `Twitch.login()` turns into `BadCredentialsException`. All four fields of the device response are
 read with `.get()` behind an `isinstance(..., dict)` guard, so a partial or non-object body logs
@@ -88,10 +99,12 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `aef9778` | Clean, pushed. Only branch, local and remote. |
+| `master` | `2022dc8` | Clean, pushed. Only branch, local and remote. |
+| **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
+| **#45** | filed 2026-08-07 | Open, unscheduled. The token endpoint's three gaps, split out of PR #44's reviews rather than widened into it. |
 | **PR #41** — issues #39 + #38, bounded login | merge commit `aef9778` | **Merged 2026-08-05.** Four review passes; CI green on 3.9/3.13/node. Not live-verified — valid cookies skip `login_flow()` entirely, so the container run proves only that startup still works. |
 | **PR #37** — issue #13, device-code login | merge commit `65662aa` | **Merged 2026-08-05.** Three review passes, four iterations; CI green on 3.9/3.13/node; live-verified in the container. |
-| **#40, #42, #43** | filed 2026-08-05 | Open, unscheduled. All three split out of PR #37's and PR #41's reviews rather than widened into them. |
+| **#40, #42, #43** | merge commit `2022dc8` | **Closed 2026-08-07** (PR #44). All three were split out of PR #37's and PR #41's reviews; doing them together while the method was fresh cost one session. |
 | **Merged branches** | — | Deleted 2026-08-05 with `git branch -d` (all three were contained in `master`) plus `git push origin --delete fix-13-device-code-login`. `master` is the only branch again, local and remote. Note `git branch -a` lists stale remote refs until `git fetch --prune`: two of the three had no remote at all. |
 | **#36** — dashboard shows disk state, not session state | filed 2026-08-04 | Open, unscheduled. First issue written to the `agent_task.yml` template. Reasoned from the code; the dashboard was never run for it. |
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
@@ -108,6 +121,31 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+
+### PR #44's two review passes, and the claim the first one checked
+
+Both passes said the change itself was correct. What the first one actually earned its keep on was
+**reading the commit title as a claim and testing it**: "Bound every device-endpoint failure the
+same way" was false, because `send_oauth_request` sat outside every guard the branch added. A DNS
+or TCP failure at login still left `login_flow()` as a bare `ConnectionError` — one attempt, no
+give-up line, precisely the shape #42 was filed about, reached one call earlier. More reachable in
+practice than the non-JSON 200 that #43 was filed for.
+
+That is the one widening the scope justified, and the test for *why* is worth reusing: the fix was
+inside the branch's own stated goal, not adjacent to it. The token-endpoint findings from the same
+reviews were the same class of bug one endpoint over and were **not** pulled in — they became #45.
+"Same shape of bug" is not the boundary; "inside what this branch claims to have done" is.
+
+Two smaller things:
+
+- **A reviewer that rejects a candidate finding out loud is showing its teeth.** The second pass
+  considered flagging the device-response body being logged whole (it contains `device_code`) and
+  rejected it with a reason: that branch is reached only when a required field is missing, which is
+  exactly the path where `user_code` is never shown, so the logged code can never be activated. A
+  report that only ever adds findings is harder to trust than one that also subtracts.
+- **The handoff document is part of the diff's correctness.** The second pass flagged `ISSUES.md`
+  still saying "nothing in flight" and listing #40/#42/#43 as open — true when written, false the
+  moment the PR merged, and exactly the failure this file exists to prevent.
 
 ### PR #41's four review passes, and what a `.get()` cost
 
@@ -268,18 +306,22 @@ to a real Discord webhook.
 the four defects were as filed, but fixing them exposed two more, and the login path is the one a
 user hits before anything else works.
 
-**#39 and #38 are closed** (PR #41, `aef9778`).
+**#39 and #38 are closed** (PR #41, `aef9778`). **#42, #43 and #40 are closed** (PR #44,
+`2022dc8`) — the batching argument below was taken and it paid: one session, two review passes,
+one extra defect found and fixed in-branch.
 
-**#33 is next, and the case for it is the strongest on the list.** The published Docker image runs
-**Python 3.10**; CI tests 3.9 and 3.13. The runtime that actually ships is the one nothing covers,
-so a 3.10-only failure passes CI and breaks the image. Everything after it gets verified more
-cheaply once it exists.
+**#33 is next, and the case for it is now unopposed.** The published Docker image runs **Python
+3.10**; CI tests 3.9 and 3.13. The runtime that actually ships is the one nothing covers, so a
+3.10-only failure passes CI and breaks the image. Everything after it gets verified more cheaply
+once it exists. The counter-argument that beat it last time — three cheap issues sitting in one
+freshly-read method — is spent.
 
-The counter-argument, stated so the next session can weigh it rather than re-derive it: #33 is
-tooling and produces no user-visible fix, and the login work has left three small, well-specified
-issues sitting in one method — **#42, #43** and **#40** — which are cheap to do together while the
-method is fresh. That is a real option, not a consolation prize; #42 and #43 are both "an unhandled
-exception escapes `login_flow()`", which is the shape the last two PRs kept finding.
+**#45 is the natural companion to the login work and is deliberately not next.** It is the same
+three fixes PR #44 made, at the token endpoint instead of the device one, and PR #44's own review
+supplied reproductions for all three. Doing it means re-reading `login_flow()` a fourth session
+running; the method has now absorbed #13, #38, #39, #42, #43 and #40, and the returns are visibly
+diminishing. Pick it up when something else brings you back to that file, or if a user reports a
+login dying mid-activation.
 
 After that: **#36**, **#26**, **#16**, with **#7 and #11** going upstream rather than being fixed
 here.
@@ -348,9 +390,10 @@ user with the defaults.
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
 | ~~39~~ | `login_flow()` re-issues device codes forever | S | Low | Med | **Closed** — PR #41, `aef9778` |
-| 42 | A single non-200 aborts login instantly | XS | Low | Low–Med | Open — split from PR #41's review |
-| 43 | A non-JSON 200 escapes as `JSONDecodeError` | XS | Low | Low–Med | Open — split from PR #41's review |
-| 40 | Token-endpoint error body logged verbatim | XS | Low | Low | Open — split from PR #37's review |
+| ~~42~~ | A single non-200 aborts login instantly | XS | Low | Low–Med | **Closed** — PR #44, `2022dc8` |
+| ~~43~~ | A non-JSON 200 escapes as `JSONDecodeError` | XS | Low | Low–Med | **Closed** — PR #44, `2022dc8` |
+| ~~40~~ | Token-endpoint error body logged verbatim | XS | Low | Low | **Closed** — PR #44, `2022dc8` |
+| 45 | Token endpoint has the three gaps the device endpoint lost | S | Low | Low–Med | Open — split from PR #44's reviews |
 | 16 | Startup primes streamers in two sequential loops | M–L | Low | Low | Open |
 | 7 | Notifiers run inside the log formatter | M | **Zero** | High | Open — upstream candidate |
 | 11 | Bet sizing and filtering bugs | S–M | **Zero** | High | Open — upstream candidate |
@@ -425,14 +468,14 @@ inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set on the repository. It t
 unconditionally, so a `workflow_dispatch` from any branch would republish `latest` — inherited
 behaviour, deliberately left.
 
-### #38, #39, #40 — what #13 left behind
+### What #13 left behind — all of it now closed
 
-All three split out of PR #37's second review. #39 is the one with teeth: `login_flow()`'s outer
-`while True` re-requests a device code after every expiry, so it never gives up and a headless
-deployment that loses its cookies presents as a hang rather than a login failure. #38 is a bare
-`KeyError` on a device response missing `interval` — the same shape of bug PR #37 fixed for a
-missing `user_code`, one field over, in the same method, which makes it a natural companion branch.
-#40 is a logging-hygiene fix resting on a response shape nobody has observed; the issue says so.
+#38, #39 and #40 split out of PR #37's second review; #42 and #43 out of PR #41's; the
+connection-error case out of PR #44's own. Six issues in one method, filed across three branches
+and closed in three (`aef9778`, `2022dc8`, and #13's own `65662aa`). **Every one of them was
+found while fixing a different bug in the same method, never by reading the method cold.** That is
+the argument for reviewing a branch on its stated claim rather than its diff, and it is why #45 —
+the same three shapes at the token endpoint — is filed rather than dropped.
 
 The estimate for #13 in the table below said "S / Low" and was wrong in an instructive way: the
 four filed defects were all real and all small, but two more fell out of fixing them, and the
