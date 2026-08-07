@@ -557,6 +557,77 @@ def test_non_dict_device_response_retries_instead_of_raising(monkeypatch):
         assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
 
 
+def test_device_request_connection_error_retries_instead_of_raising(monkeypatch):
+    """The request itself never completing is the same failure #42 is about,
+    reached one step earlier: `send_oauth_request` was outside every guard,
+    so a DNS or TCP failure at login left login_flow() as a bare
+    ConnectionError traceback -- one attempt, no give-up line. __init__'s
+    `while not is_connected()` loop returned minutes before this point and
+    is no protection. It must spend an attempt and retry like every other
+    device-endpoint failure.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        raise requests.exceptions.ConnectionError("name resolution failed")
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
+
+
+def test_device_request_connection_error_recovers_on_retry(monkeypatch):
+    """The retry has to actually work, not just avoid the traceback: a
+    transient network failure followed by a good response must still log in.
+    """
+    twitch_login = make_login()
+    monkeypatch.setattr(TwitchLogin, "check_login", lambda self: True)
+
+    device_calls = 0
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal device_calls
+        if url.endswith("/device"):
+            device_calls += 1
+            if device_calls == 1:
+                raise requests.exceptions.ConnectTimeout("timed out")
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 0,
+                    "expires_in": 1800,
+                },
+            )
+        return _FakeResponse(200, {"access_token": "REAL-TOKEN"})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    result = twitch_login.login_flow()
+
+    assert result is True
+    assert twitch_login.token == "REAL-TOKEN"
+    assert device_calls == 2
+
+
 def test_non_200_device_response_retries_instead_of_aborting(monkeypatch):
     """Covers #42: a single non-200 from the device endpoint used to `break`
     out of the outer attempt loop immediately -- a user saw "attempt 1/3"
