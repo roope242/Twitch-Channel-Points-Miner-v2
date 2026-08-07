@@ -15,10 +15,14 @@ jobs:
       fail-fast: false
       matrix:
         # The declared floor is 3.14 and 3.14 is the current release, so the
-        # matrix is one entry (#46). It stays a matrix because the shape is
-        # what a second version costs nothing to add back to -- and the
-        # container leg below builds the same version from the Dockerfile,
-        # deliberately, so this leg and that one cannot silently diverge.
+        # matrix is one entry (#46). It stays a matrix because that shape is
+        # what a second version costs nothing to add back to.
+        #
+        # Nothing enforces that this matches the Dockerfile's PYTHON_VERSION,
+        # and it does not need to: the container leg below builds and runs the
+        # suite against whatever the Dockerfile says, so a break in the shipped
+        # interpreter fails there regardless of what this line holds. Keep them
+        # equal anyway -- a difference means one of them was forgotten.
         python-version: ["3.14"]
     steps:
       - name: Checkout source
