@@ -86,7 +86,7 @@ Fixes that landed here and are **not** in upstream:
 - Dashboard log viewer, webhook URLs and Discord messages escape untrusted text; the dashboard's polling loops survive a failed request instead of dying silently.
 - PubSub errors that mean a bug in the miner (`AttributeError`, `NameError`) are logged with a traceback instead of being swallowed.
 
-Also fork-only: a test suite with CI (see [below](#by-cloning-the-repository)), and `python_requires` is **3.9**, not upstream's 3.6.
+Also fork-only: a test suite with CI (see [below](#by-cloning-the-repository)), and `python_requires` is **3.14**, not upstream's 3.6 — this fork tracks only Python versions upstream CPython still patches.
 
 ## Main differences from the original repository:
 
@@ -356,7 +356,7 @@ If `followers=True` and you follow new channels while the miner is running, you 
 
 ### By cloning the repository
 1. Clone this repository `git clone https://github.com/roope242/Twitch-Channel-Points-Miner-v2`
-2. Install all the requirements `pip install -r requirements.txt` . **Python 3.9 or newer is required.** You could also try to create a _virtualenv_ and then install all the requirements
+2. Install all the requirements `pip install -r requirements.txt` . **Python 3.14 or newer is required.** That is the version this fork tests and ships; it tracks only Python releases upstream CPython still patches. Older interpreters are not tested and not supported — note that Termux's `pkg install python` may still be behind, in which case use the Docker image instead. You could also try to create a _virtualenv_ and then install all the requirements
 ```sh
 pip install virtualenv
 virtualenv -p python3 venv
@@ -382,7 +382,7 @@ leak into anything you paste after it.
 
 Only the first line runs fully offline. The container run needs podman or docker **and network** —
 it builds the `Dockerfile`'s `test` stage, pulling the base image and installing from PyPI. That
-stage is the runtime image plus pytest, so it exercises the same Python 3.10 and the same resolved
+stage is the runtime image plus pytest, so it exercises the same Python and the same resolved
 `requirements.txt` the published image has. It takes pytest arguments
 (`scripts/test-container.sh tests/test_utils.py -q`) and exits with pytest's status. The jsdom line
 needs network too, for `npm ci` on first run.

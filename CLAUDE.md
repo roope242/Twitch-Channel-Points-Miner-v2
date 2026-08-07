@@ -45,7 +45,7 @@ scripts/test-container.sh                  # same suite in the image that ships:
 pasted whole from the repo root.)
 
 All three run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python
-3.9, 3.10 and 3.13, plus the container and jsdom legs). **Add to these rather than rebuilding a
+3.14, plus the container and jsdom legs). **Add to these rather than rebuilding a
 throwaway harness** — the jsdom suite was rewritten from scratch three times before it was
 committed, each time re-learning the same traps.
 
@@ -54,10 +54,12 @@ while CI collected nothing, because the `pytest` console script omits the repo r
 `sys.path`. For the teeth check, the jsdom suite scores 9/21 against pre-#21 `script.js`.
 
 `scripts/test-container.sh` builds the `Dockerfile`'s **`test` stage** — the runtime image's exact
-base and resolved `requirements.txt`, plus pytest — and runs the suite in it, so 3.10 is covered by
-the environment that actually ships rather than only by a matrix entry. It picks podman or docker,
-takes pytest arguments (`scripts/test-container.sh tests/test_utils.py -q`), and exits with
-pytest's status. Two things about it that are load-bearing:
+base and resolved `requirements.txt`, plus pytest — and runs the suite in it, so the Python that
+ships is covered by the environment that ships rather than only by a matrix entry. It picks podman
+or docker, takes pytest arguments (`scripts/test-container.sh tests/test_utils.py -q`), and exits
+with pytest's status. `TCPM_TEST_PYTHON=3.13 scripts/test-container.sh` builds against another
+interpreter without editing anything — that is how #46 settled whether the dependency set resolved
+on 3.14. Two things about it that are load-bearing:
 
 - **The `test` stage is deliberately not the last stage.** The last stage is what a bare
   `docker build .` produces and what `deploy-docker.yml` publishes, so it has to stay `runtime`.
@@ -132,7 +134,7 @@ timeout 420 podman run --rm -v ./run.py:/usr/src/app/run.py:ro,Z \
 mining from an image carrying pytest is not what ships.)
 
 **`--platform linux/amd64` is not optional.** `podman build` reuses a locally-stored base image
-of the *wrong* architecture if one is tagged `python:3.10-slim-bookworm` — an arm64 base left by
+of the *wrong* architecture if one is tagged `python:<version>-slim-bookworm` — an arm64 base left by
 an earlier emulated build gave a qemu run 2.5× slower that never reached the WebSocket phase in
 5 minutes. Check with `podman image inspect <tag> --format '{{.Architecture}}'`.
 
@@ -317,12 +319,20 @@ or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
   `import TwitchChannelPointsMiner.TwitchChannelPointsMiner as m` binds the **class**, not the
   module. Use `importlib.import_module(...)` when patching module-level names like `check_versions`.
 - Runtime output directories (`cookies/`, `logs/`, `analytics/`) and `run.py` are all gitignored.
-- **This fork's Python floor is 3.9**, upstream's is still 3.6. The only thing raising it is
-  `str.removesuffix()` in `AnalyticsServer.json_all`, added here. Don't contort new code to keep
-  EOL interpreters working: a fix cherry-picked upstream keeps `removesuffix` and bumps
-  `python_requires` there too, called out explicitly in the PR. (`self.streamers:
-  list[Streamer]` is annotation-only — never evaluated at runtime, verified on 3.8 — so it does
-  *not* raise the floor.) Docker uses 3.10.
+- **This fork's Python floor is 3.14**, upstream's is still 3.6. It is a policy floor, not a
+  technical one — as of #46 nothing in the code needs anything newer than `str.removesuffix()`
+  (3.9). The policy is *support only what upstream CPython still patches, and ship the newest
+  stable*: 3.9 went end of life in October 2025 and 3.10 follows in October 2026, so the image's
+  old 3.10 base was months from being unpatched. `Dockerfile`, `setup.py` and the CI matrix all
+  say 3.14 and must be changed together. **Write new code against 3.14 without apology** — that
+  is the point of the floor being high.
+
+  Two consequences worth knowing before touching this. **The dependency set moves with the
+  interpreter**: 3.14 resolves `pandas` 3.0.5 / `numpy` 2.5.1 where 3.10 pinned much older ones,
+  and `requirements.txt` pins nothing, so a base bump is a dependency bump whether or not you
+  intended one. And **anything cherry-picked upstream must not carry the floor with it** —
+  upstream declares `>=3.6`, so a fix that quietly needs 3.14 is not a fix they can take. Raise
+  it there explicitly in the PR, or write that one patch to their floor.
 
 ## Sending fixes upstream
 

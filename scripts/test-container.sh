@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run the Python suite inside the image the miner actually ships in.
 #
-# The host venv is whatever Python happens to be installed here, and CI tests
-# 3.9/3.10/3.13 on a bare runner. Neither is the published image. This builds
+# The host venv is whatever Python happens to be installed here, and CI's python
+# leg runs on a bare runner. Neither is the published image. This builds
 # the Dockerfile's `test` stage -- the runtime image's exact base and resolved
 # requirements.txt, plus pytest -- and runs the suite in it.
 #
@@ -28,7 +28,7 @@ fi
 
 # Pin the platform explicitly: podman will otherwise reuse a locally stored
 # base image of the *wrong* architecture if one happens to be tagged
-# python:3.10-slim-bookworm, and the resulting qemu-emulated run is ~2.5x
+# python:<version>-slim-bookworm, and the resulting qemu-emulated run is ~2.5x
 # slower. Pin to the host's own architecture rather than to amd64, though --
 # hardcoding amd64 makes this script unrunnable on a native arm64 host
 # without binfmt registered, and README.md now points contributors at it.
@@ -42,11 +42,20 @@ case "$host_arch" in
 esac
 platform="${TCPM_TEST_PLATFORM-$platform}"
 
-echo "==> building the test stage with $engine${platform:+ for $platform}"
+# Answering "does this still work on interpreter X" should not need a file
+# edit -- that question is why #46 was cheap to settle.
+#   TCPM_TEST_PYTHON=3.13 scripts/test-container.sh
+build_args=""
+if [ -n "${TCPM_TEST_PYTHON:-}" ]; then
+    build_args="--build-arg PYTHON_VERSION=$TCPM_TEST_PYTHON"
+fi
+
+echo "==> building the test stage with $engine${platform:+ for $platform}${TCPM_TEST_PYTHON:+ on Python $TCPM_TEST_PYTHON}"
+# shellcheck disable=SC2086  # build_args is deliberately word-split
 if [ -n "$platform" ]; then
-    "$engine" build --platform "$platform" --target test -t tcpm:test .
+    "$engine" build --platform "$platform" $build_args --target test -t tcpm:test .
 else
-    "$engine" build --target test -t tcpm:test .
+    "$engine" build $build_args --target test -t tcpm:test .
 fi
 
 echo "==> running the suite in the container"
