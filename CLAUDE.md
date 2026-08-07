@@ -36,17 +36,39 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q     # 26 tests (root conftest.py makes bare `pytest` work too)
+.venv/bin/python -m pytest tests/ -q     # 51 tests (root conftest.py makes bare `pytest` work too)
 cd tests/js && npm ci && node --test     # 21 jsdom assertions against the real script.js
+scripts/test-container.sh                # the same 51 in the image that ships (#33)
 ```
 
-Both run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python 3.9
-and 3.13). **Add to these rather than rebuilding a throwaway harness** — the jsdom suite was
-rewritten from scratch three times before it was committed, each time re-learning the same traps.
+All three run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python
+3.9, 3.10 and 3.13, plus the container and jsdom legs). **Add to these rather than rebuilding a
+throwaway harness** — the jsdom suite was rewritten from scratch three times before it was
+committed, each time re-learning the same traps.
 
-CI runs `pytest tests/ -v`. The suite once passed locally under `python -m pytest` while CI
-collected nothing — the console script omits the repo root from `sys.path`. For the teeth check,
-the jsdom suite scores 9/21 against pre-#21 `script.js`.
+CI runs `python -m pytest tests/ -v`, module form, deliberately: the suite once passed locally
+while CI collected nothing, because the `pytest` console script omits the repo root from
+`sys.path`. For the teeth check, the jsdom suite scores 9/21 against pre-#21 `script.js`.
+
+`scripts/test-container.sh` builds the `Dockerfile`'s **`test` stage** — the runtime image's exact
+base and resolved `requirements.txt`, plus pytest — and runs the suite in it, so 3.10 is covered by
+the environment that actually ships rather than only by a matrix entry. It picks podman or docker,
+takes pytest arguments (`scripts/test-container.sh tests/test_utils.py -q`), and exits with
+pytest's status. Two things about it that are load-bearing:
+
+- **The `test` stage is deliberately not the last stage.** The last stage is what a bare
+  `docker build .` produces and what `deploy-docker.yml` publishes, so it has to stay `runtime`.
+  A CI step asserts the default target's entrypoint is still `python run.py` and that pytest is
+  absent from it — reordering the stages would otherwise silently publish an image carrying the
+  test suite.
+- **`.dockerignore` excludes `tests/` and `conftest.py` and then re-admits them at the bottom**,
+  since the last matching pattern wins. They reach the builder but not the published image, which
+  is still 324 MB and contains only `TwitchChannelPointsMiner/` and `requirements.txt`.
+
+One test skips in the container and not on the host: `test_login_propagates_permission_error_…`
+chmods a file to `000`, and the image runs as root (no `USER` directive), which ignores permission
+bits. The test's own guard handles it. That is correct fidelity, not a coverage hole — the
+scenario cannot occur in the shipped environment.
 
 The package is a library; users write their own entry script:
 
@@ -98,10 +120,13 @@ exercised live.
 `run.py` is configured and `cookies/roope242.pkl` skips the device-code step:
 
 ```bash
-podman build --platform linux/amd64 -t tcpm:test .
+podman build --platform linux/amd64 -t tcpm:mine .
 timeout 420 podman run --rm -v ./run.py:/usr/src/app/run.py:ro,Z \
-  -v ./cookies:/usr/src/app/cookies:Z tcpm:test
+  -v ./cookies:/usr/src/app/cookies:Z tcpm:mine
 ```
+
+(`tcpm:mine`, not `tcpm:test` — `scripts/test-container.sh` owns that tag for the `test` stage, and
+mining from an image carrying pytest is not what ships.)
 
 **`--platform linux/amd64` is not optional.** `podman build` reuses a locally-stored base image
 of the *wrong* architecture if one is tagged `python:3.10-slim-bookworm` — an arm64 base left by

@@ -372,9 +372,14 @@ Development dependencies are in `requirements-dev.txt`. Both suites run offline 
 
 ```sh
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q          # Python
+python -m pytest tests/ -q            # Python
 cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
+scripts/test-container.sh             # the Python suite inside the Docker image that ships
 ```
+
+The container run needs podman or docker and nothing else — it builds the `Dockerfile`'s `test`
+stage, which is the runtime image plus pytest, so it exercises the same Python 3.10 and the same
+resolved `requirements.txt` that the published image has.
 
 ### Docker
 

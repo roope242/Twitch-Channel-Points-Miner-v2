@@ -1,4 +1,7 @@
-# The image needs only requirements.txt and TwitchChannelPointsMiner/ (see Dockerfile).
+# The runtime image needs only requirements.txt and TwitchChannelPointsMiner/; the
+# `test` stage additionally needs requirements-dev.txt, tests/ and conftest.py, which
+# are re-admitted at the bottom (see Dockerfile). Nothing re-admitted here reaches the
+# published image -- the runtime stage does not COPY it.
 # Named .dockerignore rather than .containerignore so docker and podman both honour it.
 
 # Credentials and runtime state -- never send these to a builder.
@@ -28,3 +31,11 @@ assets/
 scripts/
 DELETE_PYCACHE.bat
 pickle_view.py
+
+# Re-admitted for the `test` stage only. These sit last because the final
+# matching pattern wins, so they override the exclusions above.
+!tests/
+!conftest.py
+# ...but the JS half runs in its own runner, and node_modules must never be
+# sent to a builder regardless of how it got in.
+tests/js/node_modules/
