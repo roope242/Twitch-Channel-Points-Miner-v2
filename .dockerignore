@@ -44,6 +44,10 @@ pickle_view.py
 # matching pattern wins, so they override the exclusions above.
 !tests/
 !conftest.py
-# ...but the JS half runs in its own runner, and node_modules must never be
-# sent to a builder regardless of how it got in.
+# ...but `!tests/` re-admits everything under it, including the bytecode the
+# `**/` patterns above exist to exclude, so re-exclude those. And the JS half
+# runs in its own runner: node_modules must never be sent to a builder
+# regardless of how it got back in.
+tests/**/__pycache__/
+tests/**/*.pyc
 tests/js/node_modules/

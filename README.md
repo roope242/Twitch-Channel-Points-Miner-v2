@@ -380,11 +380,12 @@ scripts/test-container.sh                 # the Python suite inside the Docker i
 Run these from the repository root. The jsdom line is wrapped in a subshell so the `cd` does not
 leak into anything you paste after it.
 
-The first two suites run fully offline. The container run needs podman or docker **and network** —
+Only the first line runs fully offline. The container run needs podman or docker **and network** —
 it builds the `Dockerfile`'s `test` stage, pulling the base image and installing from PyPI. That
 stage is the runtime image plus pytest, so it exercises the same Python 3.10 and the same resolved
 `requirements.txt` the published image has. It takes pytest arguments
-(`scripts/test-container.sh tests/test_utils.py -q`) and exits with pytest's status.
+(`scripts/test-container.sh tests/test_utils.py -q`) and exits with pytest's status. The jsdom line
+needs network too, for `npm ci` on first run.
 
 ### Docker
 

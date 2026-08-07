@@ -37,7 +37,7 @@ slice — everything provable without live Twitch auth. Run it before calling an
 
 ```bash
 .venv/bin/python -m pytest tests/ -q       # 51 tests (root conftest.py makes bare `pytest` work too)
-scripts/test-container.sh                  # the same 51 in the image that ships (#33)
+scripts/test-container.sh                  # same suite in the image that ships: 50 + 1 skipped (#33)
 (cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
 
