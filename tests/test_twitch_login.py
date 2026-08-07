@@ -48,6 +48,7 @@ import os
 import pickle
 
 import pytest
+import requests
 
 import TwitchChannelPointsMiner.classes.TwitchLogin as twitch_login_module
 from TwitchChannelPointsMiner.classes.Exceptions import (
@@ -73,6 +74,24 @@ class _FakeResponse:
 
     def __contains__(self, item):
         return False
+
+
+class _FakeNonJSONResponse:
+    """Stand-in for a requests.Response whose body isn't JSON at all -- a
+    proxy or CDN answering 200 with an HTML error page, say. `.json()`
+    raises the way the real `requests.Response.json()` does (a
+    JSONDecodeError, which subclasses ValueError), and `.text` carries the
+    raw body for the fallback log message (#43).
+    """
+
+    def __init__(self, status_code, text):
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        raise requests.exceptions.JSONDecodeError(
+            "Expecting value: line 1 column 1 (char 0)", self.text, 0
+        )
 
 
 def make_login():
@@ -213,6 +232,48 @@ def test_unknown_poll_error_raises_not_implemented_with_code(monkeypatch):
         twitch_login.login_flow()
 
 
+def test_unknown_poll_error_does_not_log_full_payload(monkeypatch, caplog):
+    """Covers #40: the token-endpoint error body is the one response class
+    that can plausibly carry a credential, and file_level defaults to DEBUG
+    -- logs/<username>.log is what users attach to bug reports. PR #37
+    deliberately switched this line from the bare `Response` repr to the
+    parsed body so a real error code would be diagnosable; that must still
+    work, but the body itself must not be logged verbatim -- only its shape
+    (error_code/message fields, and the sorted key names).
+    """
+    twitch_login = make_login()
+
+    def fake_send_oauth_request(self, url, json_data):
+        if url.endswith("/device"):
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 0,
+                    "expires_in": 1800,
+                },
+            )
+        return _FakeResponse(
+            200,
+            {"error_code": "invalid_grant", "secret_field": "super-secret-value"},
+        )
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(NotImplementedError, match="invalid_grant"):
+            twitch_login.login_flow()
+
+    # The diagnosis (error code, and that "secret_field" is a key present
+    # in the body) must still reach the log...
+    assert "invalid_grant" in caplog.text
+    assert "secret_field" in caplog.text
+    # ...but the value behind that key must not.
+    assert "super-secret-value" not in caplog.text
+
+
 def test_load_cookies_corrupt_file_raises_wrong_cookies_exception(tmp_path):
     # Truncation/garbage bytes: raises UnpicklingError or EOFError.
     truncated_file = tmp_path / "truncated.pkl"
@@ -268,6 +329,15 @@ def test_save_cookies_round_trip_and_survives_a_failed_write(tmp_path, monkeypat
 
 
 def test_missing_user_code_sleeps_before_retry(monkeypatch):
+    """A 200 device body missing "user_code" must sleep and retry.
+
+    Pre-#42, this test ended the loop early by switching the second response
+    to a bare 500, since a non-200 aborted login_flow() instantly. #42 made
+    a non-200 retry-and-sleep like every other malformed-response case
+    instead, so a 500 no longer ends the loop early -- the fake now returns
+    the same malformed body on every call and the test lets the loop run out
+    its full attempt bound through the give-up path.
+    """
     twitch_login = make_login()
 
     calls = 0
@@ -276,10 +346,8 @@ def test_missing_user_code_sleeps_before_retry(monkeypatch):
     def fake_send_oauth_request(self, url, json_data):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _FakeResponse(200, {"unexpected": "body"})
-        # End the loop on the second request so the test terminates.
-        return _FakeResponse(500, {})
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeResponse(200, {"unexpected": "body"})
 
     monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
     monkeypatch.setattr(
@@ -289,8 +357,11 @@ def test_missing_user_code_sleeps_before_retry(monkeypatch):
     result = twitch_login.login_flow()
 
     assert result is False
-    assert calls == 2
-    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
 
 
 def test_missing_device_code_sleeps_before_retry(monkeypatch):
@@ -299,6 +370,10 @@ def test_missing_device_code_sleeps_before_retry(monkeypatch):
     bare KeyError out of login_flow() -- on the field the poll loop actually
     posts, so this is the one that matters most. Must retry like the other
     missing-field cases instead.
+
+    Pre-#42, this test ended the loop early via a bare 500 on the second
+    call; #42 made non-200 retry-and-sleep too, so the fake now repeats the
+    same malformed body and the test runs the loop out to its give-up path.
     """
     twitch_login = make_login()
 
@@ -308,18 +383,16 @@ def test_missing_device_code_sleeps_before_retry(monkeypatch):
     def fake_send_oauth_request(self, url, json_data):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _FakeResponse(
-                200,
-                {
-                    "user_code": "ABCD1234",
-                    "interval": 5,
-                    "expires_in": 1800,
-                    # "device_code" missing.
-                },
-            )
-        # End the loop on the second request so the test terminates.
-        return _FakeResponse(500, {})
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeResponse(
+            200,
+            {
+                "user_code": "ABCD1234",
+                "interval": 5,
+                "expires_in": 1800,
+                # "device_code" missing.
+            },
+        )
 
     monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
     monkeypatch.setattr(
@@ -329,8 +402,11 @@ def test_missing_device_code_sleeps_before_retry(monkeypatch):
     result = twitch_login.login_flow()
 
     assert result is False
-    assert calls == 2
-    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
 
 
 def test_missing_interval_sleeps_before_retry(monkeypatch):
@@ -338,6 +414,10 @@ def test_missing_interval_sleeps_before_retry(monkeypatch):
     to be read with `login_response_json["interval"]` and raise a bare
     KeyError out of login_flow(). It must be treated like the missing-
     user_code case instead: log, sleep, retry.
+
+    Pre-#42, this test ended the loop early via a bare 500 on the second
+    call; #42 made non-200 retry-and-sleep too, so the fake now repeats the
+    same malformed body and the test runs the loop out to its give-up path.
     """
     twitch_login = make_login()
 
@@ -347,18 +427,16 @@ def test_missing_interval_sleeps_before_retry(monkeypatch):
     def fake_send_oauth_request(self, url, json_data):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _FakeResponse(
-                200,
-                {
-                    "user_code": "ABCD1234",
-                    "device_code": "devcode",
-                    "expires_in": 1800,
-                    # "interval" missing.
-                },
-            )
-        # End the loop on the second request so the test terminates.
-        return _FakeResponse(500, {})
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeResponse(
+            200,
+            {
+                "user_code": "ABCD1234",
+                "device_code": "devcode",
+                "expires_in": 1800,
+                # "interval" missing.
+            },
+        )
 
     monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
     monkeypatch.setattr(
@@ -368,13 +446,20 @@ def test_missing_interval_sleeps_before_retry(monkeypatch):
     result = twitch_login.login_flow()
 
     assert result is False
-    assert calls == 2
-    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
 
 
 def test_missing_expires_in_sleeps_before_retry(monkeypatch):
     """Same as above for the other field named in #38: `expires_in` missing
     used to raise out of `timedelta(seconds=login_response_json["expires_in"])`.
+
+    Pre-#42, this test ended the loop early via a bare 500 on the second
+    call; #42 made non-200 retry-and-sleep too, so the fake now repeats the
+    same malformed body and the test runs the loop out to its give-up path.
     """
     twitch_login = make_login()
 
@@ -384,18 +469,16 @@ def test_missing_expires_in_sleeps_before_retry(monkeypatch):
     def fake_send_oauth_request(self, url, json_data):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _FakeResponse(
-                200,
-                {
-                    "user_code": "ABCD1234",
-                    "device_code": "devcode",
-                    "interval": 5,
-                    # "expires_in" missing.
-                },
-            )
-        # End the loop on the second request so the test terminates.
-        return _FakeResponse(500, {})
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeResponse(
+            200,
+            {
+                "user_code": "ABCD1234",
+                "device_code": "devcode",
+                "interval": 5,
+                # "expires_in" missing.
+            },
+        )
 
     monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
     monkeypatch.setattr(
@@ -405,8 +488,11 @@ def test_missing_expires_in_sleeps_before_retry(monkeypatch):
     result = twitch_login.login_flow()
 
     assert result is False
-    assert calls == 2
-    assert sleep_calls == [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
 
 
 def test_malformed_device_responses_count_against_give_up_bound(monkeypatch):
@@ -471,6 +557,115 @@ def test_non_dict_device_response_retries_instead_of_raising(monkeypatch):
         assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
 
 
+def test_non_200_device_response_retries_instead_of_aborting(monkeypatch):
+    """Covers #42: a single non-200 from the device endpoint used to `break`
+    out of the outer attempt loop immediately -- a user saw "attempt 1/3"
+    and then only one attempt, and the while/else give-up log line was
+    skipped entirely since `break` exits the loop without exhausting it. A
+    503 blip during startup killed a headless miner outright. Non-200 must
+    now spend an attempt and retry like the malformed-body case, exiting
+    through the same while/else give-up path once the bound is reached.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    sleep_calls = []
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeResponse(503, {})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(
+        twitch_login_module, "sleep", lambda seconds: sleep_calls.append(seconds)
+    )
+
+    result = twitch_login.login_flow()
+
+    assert result is False
+    # All 3 attempts spent, not just 1 -- the give-up path was reached
+    # rather than an early `break` cutting the loop short.
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    assert sleep_calls == (
+        [twitch_login_module.MALFORMED_RESPONSE_RETRY_SECONDS]
+        * (twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS - 1)
+    )
+
+
+def test_non_200_device_response_recovers_on_retry(monkeypatch):
+    """A transient non-200 must not prevent a later attempt from succeeding
+    -- the #42 fix has to actually retry, not just avoid crashing/aborting.
+    """
+    twitch_login = make_login()
+    monkeypatch.setattr(TwitchLogin, "check_login", lambda self: True)
+
+    device_calls = 0
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal device_calls
+        if url.endswith("/device"):
+            device_calls += 1
+            if device_calls == 1:
+                return _FakeResponse(503, {})
+            assert device_calls == 2
+            return _FakeResponse(
+                200,
+                {
+                    "user_code": "ABCD1234",
+                    "device_code": "devcode",
+                    "interval": 0,
+                    "expires_in": 1800,
+                },
+            )
+        return _FakeResponse(200, {"access_token": "REAL-TOKEN"})
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    result = twitch_login.login_flow()
+
+    assert result is True
+    assert twitch_login.token == "REAL-TOKEN"
+    assert device_calls == 2
+
+
+def test_non_json_device_response_retries_instead_of_raising(monkeypatch, caplog):
+    """Covers #43: a 200 whose body isn't JSON at all -- a proxy or CDN
+    answering `200 text/html`, say -- used to raise a bare JSONDecodeError
+    straight out of `login_response.json()`, before ever reaching the
+    `isinstance(..., dict)` guard #38/#39 added for a body that parses fine
+    but to something unusable (`null`, a list, a bare string). That guard
+    can't catch a body that never becomes a value at all. It must retry like
+    those cases instead, and the raw response text -- which could be a whole
+    HTML error page -- must be truncated before it reaches the log.
+    """
+    twitch_login = make_login()
+
+    calls = 0
+    html_body = "<html>" + ("x" * 5000) + "</html>"
+
+    def fake_send_oauth_request(self, url, json_data):
+        nonlocal calls
+        calls += 1
+        assert calls <= twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+        return _FakeNonJSONResponse(200, html_body)
+
+    monkeypatch.setattr(TwitchLogin, "send_oauth_request", fake_send_oauth_request)
+    monkeypatch.setattr(twitch_login_module, "sleep", lambda _seconds: None)
+
+    with caplog.at_level("ERROR"):
+        result = twitch_login.login_flow()
+
+    assert result is False
+    assert calls == twitch_login_module.MAX_DEVICE_CODE_ATTEMPTS
+    # Some of the body reached the log (enough to diagnose), but not the
+    # whole 5000-char page.
+    assert "<html>" in caplog.text
+    assert html_body not in caplog.text
+
+
 def test_poll_success_at_expiry_still_returns_token(monkeypatch):
     twitch_login = make_login()
     # __set_user_id() would otherwise make a real HTTP request.
@@ -485,6 +680,11 @@ def test_poll_success_at_expiry_still_returns_token(monkeypatch):
             if device_calls > 1:
                 # Bounds a pre-fix run -- which discards the token and asks
                 # for a fresh code -- into a clean failure instead of a hang.
+                # Unreached when the fix behaves correctly (device_calls
+                # never exceeds 1), so #42 making a 500 retry-and-sleep
+                # instead of aborting instantly doesn't affect this test --
+                # sleep is mocked out below either way, and only `result`/
+                # `token` are asserted, not device_calls.
                 return _FakeResponse(500, {})
             return _FakeResponse(
                 200,
