@@ -36,10 +36,13 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q     # 51 tests (root conftest.py makes bare `pytest` work too)
-cd tests/js && npm ci && node --test     # 21 jsdom assertions against the real script.js
-scripts/test-container.sh                # the same 51 in the image that ships (#33)
+.venv/bin/python -m pytest tests/ -q       # 51 tests (root conftest.py makes bare `pytest` work too)
+scripts/test-container.sh                  # the same 51 in the image that ships (#33)
+(cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
+
+(The jsdom line is parenthesised so the `cd` does not survive it — the block is meant to be
+pasted whole from the repo root.)
 
 All three run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python
 3.9, 3.10 and 3.13, plus the container and jsdom legs). **Add to these rather than rebuilding a

@@ -372,10 +372,13 @@ Development dependencies are in `requirements-dev.txt`. None of these needs a Tw
 
 ```sh
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q            # Python
-cd tests/js && npm ci && node --test  # dashboard JavaScript, in jsdom
-scripts/test-container.sh             # the Python suite inside the Docker image that ships
+python -m pytest tests/ -q                # Python
+scripts/test-container.sh                 # the Python suite inside the Docker image that ships
+(cd tests/js && npm ci && node --test)    # dashboard JavaScript, in jsdom
 ```
+
+Run these from the repository root. The jsdom line is wrapped in a subshell so the `cd` does not
+leak into anything you paste after it.
 
 The first two suites run fully offline. The container run needs podman or docker **and network** —
 it builds the `Dockerfile`'s `test` stage, pulling the base image and installing from PyPI. That

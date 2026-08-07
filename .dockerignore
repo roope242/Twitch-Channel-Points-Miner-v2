@@ -18,8 +18,13 @@ analytics/
 .git/
 .github/
 .claude/
-__pycache__/
-*.pyc
+# `**/` is load-bearing: a bare `__pycache__/` matches only at the context root, so
+# without it TwitchChannelPointsMiner/**/__pycache__ was copied into the published
+# image -- host bytecode (3.14 here) inside an image running 3.10. Harmless at
+# runtime, but it made a hand-built image differ from a CI-built one, which defeats
+# the point of testing the image that ships.
+**/__pycache__/
+**/*.pyc
 .pytest_cache/
 tests/
 conftest.py
