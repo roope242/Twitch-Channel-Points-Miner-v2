@@ -42,11 +42,20 @@ case "$host_arch" in
 esac
 platform="${TCPM_TEST_PLATFORM-$platform}"
 
-echo "==> building the test stage with $engine${platform:+ for $platform}"
+# Answering "does this still work on interpreter X" should not need a file
+# edit -- that question is why #46 was cheap to settle.
+#   TCPM_TEST_PYTHON=3.13 scripts/test-container.sh
+build_args=""
+if [ -n "${TCPM_TEST_PYTHON:-}" ]; then
+    build_args="--build-arg PYTHON_VERSION=$TCPM_TEST_PYTHON"
+fi
+
+echo "==> building the test stage with $engine${platform:+ for $platform}${TCPM_TEST_PYTHON:+ on Python $TCPM_TEST_PYTHON}"
+# shellcheck disable=SC2086  # build_args is deliberately word-split
 if [ -n "$platform" ]; then
-    "$engine" build --platform "$platform" --target test -t tcpm:test .
+    "$engine" build --platform "$platform" $build_args --target test -t tcpm:test .
 else
-    "$engine" build --target test -t tcpm:test .
+    "$engine" build $build_args --target test -t tcpm:test .
 fi
 
 echo "==> running the suite in the container"

@@ -14,10 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.9 is this fork's declared floor and 3.13 the current release;
-        # 3.10 is what the published Docker image runs, so a 3.10-only
-        # failure would otherwise pass CI and break the image (#33).
-        python-version: ["3.9", "3.10", "3.13"]
+        # The declared floor is 3.14 and 3.14 is the current release, so the
+        # matrix is one entry (#46). It stays a matrix because the shape is
+        # what a second version costs nothing to add back to -- and the
+        # container leg below builds the same version from the Dockerfile,
+        # deliberately, so this leg and that one cannot silently diverge.
+        python-version: ["3.14"]
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -39,7 +41,7 @@ jobs:
         run: python -m pytest tests/ -v
 
   container:
-    name: Container (3.10, as published)
+    name: Container (as published)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

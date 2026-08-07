@@ -42,8 +42,7 @@ setuptools.setup(
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
     classifiers=[
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.14",
         "Operating System :: OS Independent",
         "Topic :: Utilities",
         "Topic :: Software Development :: Libraries :: Python Modules",
@@ -52,5 +51,5 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Natural Language :: English",
     ],
-    python_requires=">=3.9",
+    python_requires=">=3.14",
 )

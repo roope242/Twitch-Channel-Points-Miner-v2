@@ -1,4 +1,9 @@
-FROM python:3.10-slim-bookworm AS base
+# Overridable so the suite can be run against another interpreter without
+# editing this file: `--build-arg PYTHON_VERSION=3.13`. The default is what
+# ships, and the CI container leg builds the default.
+ARG PYTHON_VERSION=3.14
+
+FROM python:${PYTHON_VERSION}-slim-bookworm AS base
 
 # Unbuffered stdout/stderr so `podman logs` shows miner output as it happens
 # instead of in block-sized bursts.
