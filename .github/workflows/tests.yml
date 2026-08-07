@@ -63,7 +63,16 @@ jobs:
           echo "entrypoint: $entrypoint"
           test "$entrypoint" = "python run.py"
           # pytest present in the runtime image means the test stage leaked in.
-          ! docker run --rm --entrypoint sh tcpm:runtime -c 'python -c "import pytest"' 2>/dev/null
+          # Assert on the *message*, not on a non-zero exit: `! docker run ...`
+          # would also pass if the image vanished or had no shell, so the guard
+          # would rot into a no-op without anyone noticing.
+          probe=$(docker run --rm --entrypoint sh tcpm:runtime \
+            -c 'python -c "import pytest" 2>&1 || true')
+          echo "probe: $probe"
+          case "$probe" in
+            *"No module named 'pytest'"*) ;;
+            *) echo "runtime image can import pytest, or the probe broke"; exit 1 ;;
+          esac
 
   javascript:
     name: JS (jsdom)

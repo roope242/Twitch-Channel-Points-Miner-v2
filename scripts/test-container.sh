@@ -26,12 +26,28 @@ else
     exit 127
 fi
 
-# --platform is not optional with podman: it will happily reuse a locally
-# stored base image of the wrong architecture if one is tagged
+# Pin the platform explicitly: podman will otherwise reuse a locally stored
+# base image of the *wrong* architecture if one happens to be tagged
 # python:3.10-slim-bookworm, and the resulting qemu-emulated run is ~2.5x
-# slower. Harmless on an amd64 docker host, so it is passed unconditionally.
-echo "==> building the test stage with $engine"
-"$engine" build --platform linux/amd64 --target test -t tcpm:test .
+# slower. Pin to the host's own architecture rather than to amd64, though --
+# hardcoding amd64 makes this script unrunnable on a native arm64 host
+# without binfmt registered, and README.md now points contributors at it.
+# The published image is amd64; testing on arm64 tests the code, not the
+# artifact, which is the honest limit of running it there.
+host_arch="$(uname -m)"
+case "$host_arch" in
+    x86_64 | amd64) platform="linux/amd64" ;;
+    aarch64 | arm64) platform="linux/arm64" ;;
+    *) platform="" ;;  # unknown: let the engine decide rather than guess wrong
+esac
+platform="${TCPM_TEST_PLATFORM-$platform}"
+
+echo "==> building the test stage with $engine${platform:+ for $platform}"
+if [ -n "$platform" ]; then
+    "$engine" build --platform "$platform" --target test -t tcpm:test .
+else
+    "$engine" build --target test -t tcpm:test .
+fi
 
 echo "==> running the suite in the container"
 if [ "$#" -eq 0 ]; then

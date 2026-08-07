@@ -1,7 +1,10 @@
 # The runtime image needs only requirements.txt and TwitchChannelPointsMiner/; the
-# `test` stage additionally needs requirements-dev.txt, tests/ and conftest.py, which
-# are re-admitted at the bottom (see Dockerfile). Nothing re-admitted here reaches the
-# published image -- the runtime stage does not COPY it.
+# `test` stage additionally needs requirements-dev.txt, tests/ and conftest.py (see
+# Dockerfile). requirements-dev.txt is simply never excluded; tests/ and conftest.py
+# are excluded above and re-admitted at the bottom. If you ever add a pattern that
+# catches requirements-dev.txt, it needs re-admitting there too or the test stage
+# stops building. Nothing the test stage uses reaches the published image -- the
+# runtime stage does not COPY it.
 # Named .dockerignore rather than .containerignore so docker and podman both honour it.
 
 # Credentials and runtime state -- never send these to a builder.
