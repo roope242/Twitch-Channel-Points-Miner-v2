@@ -169,6 +169,14 @@ python3 -m venv .venv && .venv/bin/pip install pre-commit   # not installed in t
 .venv/bin/pre-commit run --all-files
 ```
 
+`pyrightconfig.json` exists so a pyright LSP resolves `.venv` instead of reporting every
+`import pandas` as unresolved. **`typeCheckingMode` is `"off"` deliberately.** The package carries no
+annotations and nothing type-checks it in CI, so `basic` mode produces a page of complaints about
+untyped legacy code — 14 errors in `AnalyticsServer.py` alone, none actionable — and buries the
+navigation the LSP is actually there for. Hover, go-to-definition and find-references all still work
+with it off; only diagnostics are suppressed. If anyone ever wants real type checking, that is a
+project, not a config flag.
+
 The repo is **not** uniformly black-formatted despite the hook — large parts of `Twitch.py`,
 `AnalyticsServer.py`, and `TwitchChannelPointsMiner.py` predate it. Write new code black-clean, but
 do not reformat whole files: it destroys diff reviewability for no benefit.
@@ -372,8 +380,9 @@ or `data.jsdelivr.com/v1/packages/npm/<pkg>` before committing.
 
 `origin` is the `roope242` fork; its parent is `rdavydov/...`, whose parent is
 `Tkd-Alex/...`. `CLAUDE.md`, `ISSUES.md` (fork-local triage and fix order), `.coderabbit.yaml`,
-`.claude/`, `scripts/cr-wait.sh`, and the whole test setup (`tests/`, `conftest.py`,
-`requirements-dev.txt`, `.github/workflows/tests.yml`) exist only on the fork — **never open an
+`.claude/`, `scripts/cr-wait.sh`, `pyrightconfig.json`, and the whole test setup (`tests/`,
+`conftest.py`, `requirements-dev.txt`, `.github/workflows/tests.yml`) exist only on the fork —
+**never open an
 upstream PR from `master`**, it would carry them along. Branch off `upstream/master`, cherry-pick the fix
 commits, and open it cross-fork:
 
