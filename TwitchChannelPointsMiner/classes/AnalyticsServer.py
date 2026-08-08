@@ -136,8 +136,31 @@ def read_json(streamer, return_response=True):
         else:
             return {"error": error_message}
 
+    # `filter_datas` parses these same startDate/endDate strings again as its very
+    # first step. Validating them here, before the malformed-data guard below, means
+    # a bad `?startDate=` still raises unguarded (unchanged existing behaviour)
+    # instead of being caught by that guard and misreported as a corrupt file.
+    if start_date is not None:
+        datetime.strptime(start_date, "%Y-%m-%d")
+    if end_date is not None:
+        datetime.strptime(end_date, "%Y-%m-%d")
+
     # Handle filtering data, if applicable
-    filtered_data = filter_datas(start_date, end_date, data)
+    try:
+        filtered_data = filter_datas(start_date, end_date, data)
+    except (ValueError, AttributeError, KeyError, TypeError) as e:
+        error_message = (
+            f"Error processing analytics data in file '{streamer}': {str(e)}"
+        )
+        logger.error(error_message)
+        if return_response:
+            return Response(
+                json.dumps({"error": error_message}),
+                status=500,
+                mimetype="application/json",
+            )
+        else:
+            return {"error": error_message}
     if return_response:
         return Response(json.dumps(filtered_data), status=200, mimetype="application/json")
     else:

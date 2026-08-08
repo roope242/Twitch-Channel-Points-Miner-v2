@@ -124,6 +124,127 @@ def test_json_all_survives_an_empty_series(client):
     assert bundled["healthy"]["series"] == SERIES
 
 
+def test_point_with_no_x_reports_error_instead_of_500(client):
+    """A hand-trimmed series can leave a point with no `x` -- `df.x` raises AttributeError."""
+    client.write_analytics("streamer", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_series_as_dict_reports_error_instead_of_500(client):
+    """`series` as a dict makes `pd.DataFrame` raise ValueError, not build columns."""
+    client.write_analytics("streamer", {"series": {"a": 1, "b": 2}, "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_series_as_number_reports_error_instead_of_500(client):
+    client.write_analytics("streamer", {"series": 5, "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_top_level_array_reports_error_instead_of_500(client):
+    """A bare JSON array at the top level has no `.get`, unlike the expected dict."""
+    client.write_analytics("streamer", [{"series": []}])
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_annotation_with_no_x_reports_error_instead_of_500(client):
+    client.write_analytics("streamer", {"series": SERIES, "annotations": [{"y": 0}]})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_point_with_no_y_reports_error_instead_of_500(client):
+    """A point missing `y` makes `sort_values(by=["x", "y"])` raise KeyError."""
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": 1785170438000, "z": "Watch"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_point_with_string_x_reports_error_instead_of_500(client):
+    """A timestamp left as a string makes `df.x // 1000` raise TypeError."""
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": "abc", "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_bad_date_param_is_not_reported_as_a_malformed_file(client):
+    """A bad `?startDate=` must not be misdiagnosed as a corrupt analytics file.
+
+    `filter_datas` parses startDate/endDate before touching the file data, so this
+    is a different failure than the malformed-shape cases above. It must not be
+    caught by the "Error processing analytics data in file ..." guard -- Flask's
+    TESTING mode propagates unhandled exceptions rather than turning them into a
+    response, which is exactly the pre-existing (unchanged) behaviour this test
+    pins: a plain, unguarded `ValueError`, not our file-naming error branch.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get("/json/streamer?startDate=notadate")
+
+
+def test_streamers_list_survives_a_malformed_file(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("broken", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/streamers")
+
+    assert response.status_code == 200
+    listed = {entry["name"]: entry for entry in json.loads(response.data)}
+    assert listed["broken.json"]["points"] == 0
+    assert listed["healthy.json"]["points"] == 473082
+
+
+def test_json_all_survives_a_malformed_file(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("broken", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/json_all")
+
+    assert response.status_code == 200
+    bundled = {entry["name"]: entry["data"] for entry in json.loads(response.data)}
+    assert "error" in bundled["broken"]
+    assert bundled["healthy"]["series"] == SERIES
+
+
 def test_no_stream_fallback_still_fires(client):
     """A date window past the last data point yields the straight-line filler.
 
