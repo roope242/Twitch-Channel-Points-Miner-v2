@@ -9,7 +9,24 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-08, end of session — **#52 closed** (PR #53, merge commit `30c6c29`), the
+**Last updated:** 2026-08-08, end of session — after #52 merged, a **pyright LSP** was installed as
+a plugin and configured: `pyrightconfig.json` (`c95669e`) points it at `.venv`, with
+`typeCheckingMode: "off"`. That is a decision, not laziness — resolving the venv correctly makes
+pyright see real types and turns 7 import errors into **14 complaints about untyped legacy code**,
+none actionable, burying the navigation the LSP is there for. **#56 filed** for the one change that
+would make diagnostics usable: `Settings` is a bare `class Settings: pass`, which alone accounts for
+six false positives against two true ones when `reportAttributeAccessIssue` is on. Measured by
+injecting a `logger.erorr` typo and an undefined call into a scratch tree.
+
+Two things worth carrying about the LSP. **Availability is not use** — the plugin registers the tool
+for every session automatically, but it arrives *deferred*, so a session sees a bare name and must
+look up the schema before calling anything. Nothing prompts it to; `CLAUDE.md` now does (`8523574`).
+And **its value here is `findReferences`, not bug-finding**: it answered "how many callers does
+`read_json` have" exactly, including the URL-rule registration that reads as a string — the question
+#52 got wrong and paid for — while none of the real defects in #49 or #52 were findable by a type
+checker on unannotated code.
+
+Earlier the same day — **#52 closed** (PR #53, merge commit `30c6c29`), the
 second dashboard fix of the day. `read_json` now contains a misshapen analytics file instead of
 letting it raise: one bad file used to take out `/json/<streamer>`, `/streamers` *and* `/json_all`,
 and `/streamers` fills the sidebar, so the symptom was a dashboard rendering nothing rather than one
@@ -154,12 +171,13 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `30c6c29` | Clean, pushed. The only branch on the remote; see below for the local extras. |
+| `master` | `8523574` | Clean, pushed. The only branch on the remote; see below for the local extras. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
 | **PR #51** — issue #49, empty analytics list | merge commit `c5699ba` | **Merged 2026-08-08.** Three review passes, the cap; no critical or warning findings in any. CI green on 3.14/container/node against the exact head; live-verified two-sided in the container. Branch deleted on merge. |
 | **PR #53** — issue #52, malformed analytics file | merge commit `30c6c29` | **Merged 2026-08-08.** Three review passes, the cap, each finding something real. CI green on 3.14/container/node against the exact head. Branch deleted on merge. |
 | **#52** | merge commit `30c6c29` | **Closed 2026-08-08** (PR #53). |
 | **#54** | filed 2026-08-08 | Open, unscheduled. A `NaN` serves a 200 with a body no browser can parse, from two triggers — the literal token, and pandas manufacturing one when *some* points lack `y`. Fails on the way **out**, so #52's guard cannot see it. |
+| **#56** | filed 2026-08-08 | Open, unscheduled. Declare `Settings`' six attributes so a type checker can see the namespace singleton. Zero-runtime-change (annotation-only declarations create no attribute, verified); unlocks `reportAttributeAccessIssue`. |
 | **#55** | filed 2026-08-08 | Open, unscheduled. A file that never *decodes* (UTF-16, latin-1, binary, bad permissions) still takes all three routes down — the read's `except json.JSONDecodeError` sits above #52's guard. |
 | **#49** | merge commit `c5699ba` | **Closed 2026-08-08** (PR #51). Filed and fixed the same day, the first issue in this repo to go from a review finding to merged inside one session. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
@@ -186,10 +204,12 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing is in flight — see "Next up". `master` is the only branch **on the remote**. Locally there
-are two leftovers, both harmless and both deletable: `fix-49-empty-series` (merged, its remote gone,
-so `git branch -vv` marks it `[gone]`) and `tmp-leak-check` (`f6981e2`), the scratch branch from the
+are three leftovers, all harmless and all deletable: `fix-49-empty-series` and
+`fix-52-malformed-analytics` (both merged, both marked `[gone]` by `git branch -vv` since their
+remotes were deleted on merge), and `tmp-leak-check` (`f6981e2`), the scratch branch from the
 `check-ignore --no-index` experiment written up under PR #47 — it holds a 13-byte *fake*
-`cookies/leaktest.pkl`, was never pushed, and exists only as the worked example.
+`cookies/leaktest.pkl`, was never pushed, and exists only as the worked example. Deleting them was
+offered and not taken; they cost nothing.
 
 ### PR #53 — malformed analytics file (issue #52, `30c6c29`)
 
@@ -528,7 +548,7 @@ under a check showed host bytecode had been shipping inside it.
 one command, and answering it first is what kept the rest small.
 
 **#49 is closed** (PR #51, `c5699ba`) — see its section below. **Nothing is scheduled next.** The
-remaining open list is #54, #55, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather
+remaining open list is #54, #55, #56, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather
 than being fixed here. #45 (the token endpoint's three gaps) is still the best candidate if a login
 problem is ever reported.
 
@@ -542,6 +562,13 @@ rather than three, and `tests/test_analytics_server.py` already has the harness 
 **Read #54's comment thread before scoping it.** The obvious fix — reject `NaN` on load — handles
 only one of its two triggers. pandas *manufactures* a `NaN` when some points lack `y` but not all,
 which no input validation can see, so the serialisation side has to be covered either way.
+
+**#56 is the cheapest thing on the list and the only one that pays back on every future task.** Six
+annotation-only declarations on `Settings`, no runtime change, after which a type checker can be
+turned on and starts catching the attribute typos that `WebSocketsPool.on_message`'s blanket
+`except` currently swallows into a single log line. The issue carries the measurement; the open
+question in it — whether enabling `reportAttributeAccessIssue` across the whole package produces new
+noise — is the only work.
 
 **#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
 indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20
@@ -636,6 +663,7 @@ user with the defaults.
 | ~~52~~ | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | **Closed** — PR #53, `30c6c29` |
 | 54 | A `NaN` serves a 200 the browser cannot parse | S | Low | Med | Open — split from PR #53's reviews |
 | 55 | A file that never decodes still 500s all three routes | S | Low | Med | Open — split from PR #53's third review |
+| 56 | `Settings` is undeclared, so no type checker can read it | XS | n/a — tooling | n/a | Open — from configuring the pyright LSP |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
