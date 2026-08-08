@@ -9,7 +9,20 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-08 — **#46 closed** (PR #48, merge commit `605e0b2`). The Python floor
+**Last updated:** 2026-08-08, later — **the fork publishes its own image for real now.**
+`DOCKER_USERNAME`/`DOCKER_TOKEN` were set as repository secrets (Docker Hub PAT, **Read & Write**,
+not Read/Write/Delete — the workflow only pushes, and moving `:latest` is a push, not a delete), and
+`deploy-docker.yml` was dispatched for the first time in the repo's history: green in **1m8s**,
+`roopeli/twitch-channel-points-miner-v2:latest` now the 336 MB 3.14 build (108.1 MB compressed on
+Docker Hub) instead of the 1.57 GB `b02bef0` one from 2026-08-01. Verified by pulling the published
+image back: amd64, entrypoint `python run.py`, Python 3.14.7, pandas 3.0.5 / numpy 2.5.1, no
+`pytest` — the `runtime` stage, not `test`. **`b02bef0` did not move**, and the prediction that it
+would was wrong: `metadata-action`'s `type=semver` only fires on git tags, so a `workflow_dispatch`
+produces `latest` alone. **#50 filed** from the run's own annotation — all nine action pins in
+`.github/workflows/` are node20 majors being force-run on Node 24. Both of #34's leftovers are now
+closed out.
+
+Earlier the same day — **#46 closed** (PR #48, merge commit `605e0b2`). The Python floor
 is **3.14** everywhere: `Dockerfile` base, `setup.py` `python_requires`, CI matrix, README. It is a
 *policy* floor, not a technical one — nothing in the code needs past 3.9's `removesuffix` — and the
 policy is "support only what upstream CPython still patches". #33's container lane is what made this
@@ -135,8 +148,9 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#29** — inherited badge workflows | `90797a3` | **Closed 2026-08-01.** Both deleted; `deploy-docker.yml` kept and retargeted. |
 | **#30** — README retargeted for the fork | `ddff42e` | **Closed 2026-08-01.** Docs-only, no PR. Option 1 (minimal) from the issue. |
 | **PR #31** — issue #10, PubSub reconnection | merge commit `6d98a16` | **Merged 2026-08-01.** Two review rounds; CI green; live-verified. |
-| **Docker image** | `b02bef0` pushed 2026-08-01 (1.57 GB); rebuilt at 324 MB, **not pushed** | `roopeli/twitch-channel-points-miner-v2:latest` + `:b02bef0` on Docker Hub are still the 1.57 GB build. The slim rebuild exists locally only. |
-| **#34** — image was 1.57 GB for 652 kB of code | this session | **Closed 2026-08-01.** 324 MB, 79% smaller. Publishing it and moving builds to CI are still open. |
+| **Docker image** | published from CI 2026-08-08, run `31259022141` | `:latest` = the 336 MB 3.14 build, pushed by `deploy-docker.yml`. `:b02bef0` still the 1.57 GB 2026-08-01 build and must not move. |
+| **#50** | filed 2026-08-08 | Open, unscheduled. Nine action pins across both workflows declare `node20`; GitHub force-runs them on Node 24 already. Observed as an annotation on the first `deploy-docker.yml` dispatch. |
+| **#34** — image was 1.57 GB for 652 kB of code | this session | **Closed 2026-08-01.** 324 MB, 79% smaller (336 MB since the 3.14 bump). Both leftovers now closed: secrets set and the image published from CI on 2026-08-08. |
 | **PR #35** — issue #32, `submit()` capacity race | merge commit `888c375` | **Merged 2026-08-01.** Four review rounds; CI green; live-verified in the container. The reconnect path itself was never exercised against a live socket — see below. |
 | **#33** | filed 2026-08-01 | Open, unscheduled. Container testing. |
 | **`6f5cad8` review debt** | `d9f2bad` | **Paid 2026-08-01.** Post-hoc `pr-reviewer` run on a commit that skipped review; 2 findings, both fixed. |
@@ -400,10 +414,17 @@ under a check showed host bytecode had been shipping inside it.
 **#46 is closed** (PR #48, `605e0b2`), and the prediction held exactly: the dependency question was
 one command, and answering it first is what kept the rest small.
 
-**Nothing is scheduled next.** The remaining open list is #49, #36, #26, #24 and #16, with **#7 and
-#11** going upstream rather than being fixed here. #49 is the cheapest (two characters per site, at
-three sites) and the only one that is a live defect rather than tooling or polish; #45 (the token
-endpoint's three gaps) is still the best candidate if a login problem is ever reported.
+**Nothing is scheduled next.** The remaining open list is #49, #50, #36, #26, #24 and #16, with
+**#7 and #11** going upstream rather than being fixed here. #49 is the cheapest (two characters per
+site, at three sites) and the only one that is a live defect rather than tooling or polish; #45 (the
+token endpoint's three gaps) is still the best candidate if a login problem is ever reported.
+
+**#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
+indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20
+shim is withdrawn the publish path breaks silently and is discovered by whoever next tries to cut a
+release. `tests.yml` shares the same stale pins and at least fails loudly on the next PR. The work
+is nine version bumps in two files; the cost is entirely in verifying `deploy-docker.yml` without
+republishing `latest` from a branch.
 
 **#45 is the natural companion to the login work and is deliberately not next.** It is the same
 three fixes PR #44 made, at the token endpoint instead of the device one, and PR #44's own review
@@ -420,11 +441,21 @@ grew a `BadCredentialsException` on failed login and a restructured `Twitch.logi
 behaviour change upstream would have to want on its own terms rather than a bug fix to wave
 through. Send it only if someone asks.
 
-**Two things left over from #34, both needing a decision rather than code:** the Docker Hub tags
-still point at the 1.57 GB build, because republishing `latest` was not done unilaterally; and
-`deploy-docker.yml` stays inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set as repository
-secrets, which only the repo owner can do. Until one of those happens, `latest` is a hand-built
-image from a laptop.
+**Both of #34's leftovers are closed as of 2026-08-08.** The owner set `DOCKER_USERNAME` and
+`DOCKER_TOKEN` as repository secrets, and `deploy-docker.yml` was dispatched: `latest` is now built
+by CI from `master` rather than by hand from a laptop. Three things worth keeping from it:
+
+- **Read & Write is the right PAT scope, not Read/Write/Delete.** The workflow pushes and nothing
+  else; moving `:latest` to a new digest rewrites a tag pointer, which is a push. Delete would only
+  be needed by a tag-pruning step that does not exist.
+- **Docker Hub PATs cannot be scoped to one repository** — the four scopes are all account-wide.
+  A genuinely repo-scoped token needs either a second account added as a collaborator on that repo,
+  or an organization access token, which needs a paid Team plan. Accepted as-is: that account owns
+  one image.
+- **A `workflow_dispatch` publishes `latest` only.** `metadata-action`'s `type=semver` line is
+  gated on `startsWith(github.ref, 'refs/tags')`, so the version tag is a no-op off a tag push.
+  That is what kept `:b02bef0` pointing at the old build. It also means `latest` can be republished
+  from *any* branch, which is the trap recorded in #50.
 
 **#29's fix is confirmed, four days on.** `gh run list --event schedule` on 2026-08-05 returns the
 two 2026-08-01 failures and nothing newer, so deleting the scheduled workflows really did stop the
@@ -477,6 +508,7 @@ user with the defaults.
 | ~~33~~ | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | **Closed** — PR #47, `2397ca2` |
 | ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
 | 49 | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | Open — split from PR #48's review |
+| 50 | Every action pin targets Node 20, force-run on Node 24 | S | n/a — tooling | n/a | Open — from the first `deploy-docker.yml` dispatch |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
@@ -531,10 +563,11 @@ Verified in the built container: `__version__` is `2.0.7`; `pandas`, `flask`, `i
 import; the five packaged dashboard assets are present *and* `check_assets()` copies all five out
 at runtime; `pip list` shows none of `pre-commit`/`virtualenv`/`nodeenv`/`cfgv`. The entrypoint was
 run with `run.py` bind-mounted and no cookies: it reached the Twitch device-code prompt, so it dies
-at auth, not on an import. Not verified: a full live mining run from the container, and the image
-was **not** pushed.
+at auth, not on an import. Not verified at the time: a full live mining run from the container, and
+the image was **not** pushed. **Both since done** — PR #48 was live-verified in the container, and
+CI published the image on 2026-08-08.
 
-Credentials for the push live in `~/.config/containers/auth.json` with
+Credentials for a *hand* push live in `~/.config/containers/auth.json` with
 `REGISTRY_AUTH_FILE` exported from `~/.bashrc.d/podman.sh` — podman's default store is
 `$XDG_RUNTIME_DIR/containers/auth.json` on tmpfs and does not survive a reboot. That drop-in is
 **not** read by systemd user units; those need `~/.config/environment.d/`.
@@ -545,7 +578,9 @@ Credentials for the push live in `~/.config/containers/auth.json` with
 ### #33 — inherited from upstream, never reviewed for this fork
 
 Same shape as #29, #30 and #34: material that came over from `rdavydov/...` and was never read as
-*this* repo's. Nothing currently tests Python 3.10, which is what the published Docker image runs.
+*this* repo's. As filed: nothing tested Python 3.10, which is what the published Docker image ran
+then. Both halves have moved since — the container lane tests whatever the image ships, and since
+#46 that is 3.14.
 
 **#29 closed 2026-08-01 (`90797a3`).** Both badge workflows deleted, with `CLONE.md` and
 `TRAFFIC.md`. They failed daily because `SECRET_TOKEN` is unset here, so `gh auth login
@@ -554,10 +589,11 @@ runner waiting for a code nobody can type. They also curl'd and executed a third
 a runner holding a PAT. No scheduled workflow remains.
 
 `deploy-docker.yml` was kept rather than deleted, because the fork now publishes an image: it
-points at `roopeli/...`, builds `linux/amd64` only, and the QEMU step went with the ARM legs. It is
-inert until `DOCKER_USERNAME` and `DOCKER_TOKEN` are set on the repository. It tags `latest`
-unconditionally, so a `workflow_dispatch` from any branch would republish `latest` — inherited
-behaviour, deliberately left.
+points at `roopeli/...`, builds `linux/amd64` only, and the QEMU step went with the ARM legs. **It
+went live on 2026-08-08** once `DOCKER_USERNAME` and `DOCKER_TOKEN` were set on the repository. It
+tags `latest` unconditionally, so a `workflow_dispatch` from any branch republishes `latest` —
+inherited behaviour, deliberately left, and now a real hazard rather than a theoretical one. #50
+records it as the trap to work around when that workflow next needs testing.
 
 ### What #13 left behind — all of it now closed
 
