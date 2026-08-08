@@ -9,7 +9,18 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-08, later — **the fork publishes its own image for real now.**
+**Last updated:** 2026-08-08, end of session — **#49 closed** (PR #51, merge commit `c5699ba`).
+`filter_datas` treats an empty or null `series`/`annotations` as the missing-key case, so the
+dashboard renders instead of 500ing. Three review passes, **the cap reached**, no critical or
+warning finding in any of them — but each pass widened the change: pass 1 found the fix repairs
+*three* routes rather than one, pass 2 found `"series": null` still dying at the boundary the first
+fix had moved, pass 3 found two doc claims wrong. The last of those was applied without a fourth
+review, as one-line prose. **#52 filed** for the general case: nine of twelve probed payload shapes
+still 500 all three routes. The dashboard has Python coverage for the first time —
+`tests/test_analytics_server.py`, 9 cases, 6 with teeth against the pre-fix revision; suite is 60
+host / 59 + 1 container / 21 jsdom.
+
+Earlier the same day — **the fork publishes its own image for real now.**
 `DOCKER_USERNAME`/`DOCKER_TOKEN` were set as repository secrets (Docker Hub PAT, **Read & Write**,
 not Read/Write/Delete — the workflow only pushes, and moving `:latest` is a push, not a delete), and
 `deploy-docker.yml` was dispatched for the first time in the repo's history: green in **1m8s**,
@@ -133,11 +144,11 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `df20a44` | Clean, pushed. `fix-49-empty-series` is the one other branch, local and remote. |
+| `master` | `c5699ba` | Clean, pushed. The only branch on the remote; see below for the local extras. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
-| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** Three review passes, the cap; no critical or warning findings in any. Pass 1 found the stale `CLAUDE.md` test counts and the two extra broken routes; pass 2 found `"series": null` still 500ing at the boundary the first fix moved. Both applied in-branch. Live-verified two-sided in the container. |
+| **PR #51** — issue #49, empty analytics list | merge commit `c5699ba` | **Merged 2026-08-08.** Three review passes, the cap; no critical or warning findings in any. CI green on 3.14/container/node against the exact head; live-verified two-sided in the container. Branch deleted on merge. |
 | **#52** | filed 2026-08-08 | Open, unscheduled. The general case PR #51 deferred: any analytics file that parses but is misshapen 500s all three routes, so one bad file blanks the whole dashboard. Nine of twelve probed payload shapes still fail. |
-| **#49** | filed 2026-08-08 | **Fix open as PR #51.** `filter_datas` guarded a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
+| **#49** | merge commit `c5699ba` | **Closed 2026-08-08** (PR #51). Filed and fixed the same day, the first issue in this repo to go from a review finding to merged inside one session. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
 | **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
@@ -161,13 +172,13 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-**PR #51 is in flight** — see "Next up" and the section below it. `master` and
-`fix-49-empty-series` are the only branches **on the remote**. Locally there is also
-`tmp-leak-check` (`f6981e2`), the scratch branch from the `check-ignore --no-index` experiment
-written up under PR #47; it holds a 13-byte fake `cookies/leaktest.pkl`, was never pushed, and can
-be deleted once nobody wants the worked example.
+Nothing is in flight — see "Next up". `master` is the only branch **on the remote**. Locally there
+are two leftovers, both harmless and both deletable: `fix-49-empty-series` (merged, its remote gone,
+so `git branch -vv` marks it `[gone]`) and `tmp-leak-check` (`f6981e2`), the scratch branch from the
+`check-ignore --no-index` experiment written up under PR #47 — it holds a 13-byte *fake*
+`cookies/leaktest.pkl`, was never pushed, and exists only as the worked example.
 
-### PR #51, and the route the issue did not name
+### PR #51 — empty analytics list (issue #49, `c5699ba`)
 
 The fix is the two characters #49 predicted, but the blast radius was three times what the issue
 described, in both directions:
@@ -464,10 +475,10 @@ under a check showed host bytecode had been shipping inside it.
 **#46 is closed** (PR #48, `605e0b2`), and the prediction held exactly: the dependency question was
 one command, and answering it first is what kept the rest small.
 
-**#49 is in flight as PR #51** — see its section below. After it merges the remaining open list is
-#52, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather than being fixed here.
-#45 (the token endpoint's three gaps) is still the best candidate if a login problem is ever
-reported.
+**#49 is closed** (PR #51, `c5699ba`) — see its section below. **Nothing is scheduled next.** The
+remaining open list is #52, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather
+than being fixed here. #45 (the token endpoint's three gaps) is still the best candidate if a login
+problem is ever reported.
 
 **#52 is the natural successor to #51 and is the strongest of those on user impact.** PR #51 fixed
 two payload shapes; nine others still 500 all three routes, and because `/streamers` feeds the
@@ -563,7 +574,7 @@ user with the defaults.
 | ~~30~~ | README is upstream's, unreviewed for this fork | S | n/a — docs | Med | **Closed** — `ddff42e` |
 | ~~33~~ | Tests do not run in a container, so nothing tests 3.10 | M | n/a — tooling | n/a | **Closed** — PR #47, `2397ca2` |
 | ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
-| 49 | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | Open — split from PR #48's review |
+| ~~49~~ | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | **Closed** — PR #51, `c5699ba` |
 | 50 | Every action pin targets Node 20, force-run on Node 24 | S | n/a — tooling | n/a | Open — from the first `deploy-docker.yml` dispatch |
 | 52 | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | Open — split from PR #51's third review |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
