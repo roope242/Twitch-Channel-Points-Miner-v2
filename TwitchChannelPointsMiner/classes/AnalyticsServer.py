@@ -54,9 +54,13 @@ def filter_datas(start_date, end_date, datas):
         else datetime.now()
     ).replace(hour=23, minute=59, second=59).timestamp() * 1000
 
-    original_series = datas.get("series", [])
+    # `or []` rather than a default: the key can be present and null, which the
+    # two-argument form passes straight through to `len()` below.
+    original_series = datas.get("series") or []
 
-    if "series" in datas:
+    # Truthiness, not membership: an empty list builds a column-less DataFrame,
+    # so `df.x` below raises AttributeError and the route 500s.
+    if datas.get("series"):
         df = pd.DataFrame(datas["series"])
         df["datetime"] = pd.to_datetime(df.x // 1000, unit="s")
 
@@ -88,7 +92,7 @@ def filter_datas(start_date, end_date, datas):
             datas["series"] = [{'x': start_date, 'y': last_balance, 'z': 'No Stream'}, {
                 'x': end_date, 'y': last_balance, 'z': 'No Stream'}]
 
-    if "annotations" in datas:
+    if datas.get("annotations"):
         df = pd.DataFrame(datas["annotations"])
         df["datetime"] = pd.to_datetime(df.x // 1000, unit="s")
 

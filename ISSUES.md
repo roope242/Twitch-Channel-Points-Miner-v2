@@ -133,9 +133,11 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `605e0b2` | Clean, pushed. Only branch, local and remote. |
+| `master` | `df20a44` | Clean, pushed. `fix-49-empty-series` is the one other branch, local and remote. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
-| **#49** | filed 2026-08-08 | Open, unscheduled. `filter_datas` guards a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
+| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** Three review passes, the cap; no critical or warning findings in any. Pass 1 found the stale `CLAUDE.md` test counts and the two extra broken routes; pass 2 found `"series": null` still 500ing at the boundary the first fix moved. Both applied in-branch. Live-verified two-sided in the container. |
+| **#52** | filed 2026-08-08 | Open, unscheduled. The general case PR #51 deferred: any analytics file that parses but is misshapen 500s all three routes, so one bad file blanks the whole dashboard. Nine of twelve probed payload shapes still fail. |
+| **#49** | filed 2026-08-08 | **Fix open as PR #51.** `filter_datas` guarded a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
 | **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
@@ -159,7 +161,55 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+**PR #51 is in flight** — see "Next up" and the section below it. `master` and
+`fix-49-empty-series` are the only branches **on the remote**. Locally there is also
+`tmp-leak-check` (`f6981e2`), the scratch branch from the `check-ignore --no-index` experiment
+written up under PR #47; it holds a 13-byte fake `cookies/leaktest.pkl`, was never pushed, and can
+be deleted once nobody wants the worked example.
+
+### PR #51, and the route the issue did not name
+
+The fix is the two characters #49 predicted, but the blast radius was three times what the issue
+described, in both directions:
+
+- **The issue named three sites needing the change; only two do.** The `original_series` fallback
+  is already gated on `len(original_series) > 0`, so it can never reach `pd.DataFrame` with an
+  empty list. Checked rather than patched.
+- **The issue named one broken route; three are broken.** `get_challenge_points` and
+  `get_last_activity` call `read_json` too, so an empty `series` 500'd `/streamers` and `/json_all`
+  as well as `/json/<streamer>` — and `/streamers` is what populates the dashboard sidebar, so the
+  practical symptom is a dashboard that renders nothing at all, not one chart that fails. The
+  reviewer found this; two tests were added for it and the PR body corrected.
+
+- **The first fix moved a boundary and left a hole at it.** `original_series = datas.get("series",
+  [])` substitutes only when the key is *absent*, so once the guard below it became a truthiness
+  test, `"series": null` sailed past and died one line later on `len(None)` — all three routes, 500,
+  same as before. Not a regression (it 500'd pre-fix too, one line earlier), but the change had
+  moved the failure without closing it. `datas.get("series") or []`. **When a guard changes which
+  values reach the next line, re-read the next line.**
+
+The third pass found no code defects and its regression matrix is the useful artefact: twelve
+payload shapes × three routes, on base and head, with **exactly two rows changing**, both 500 → 200.
+That is the shape of evidence that a small guard change did not quietly move anything else. Its two
+findings were doc accuracy — a third local branch this file said did not exist, and a `CLAUDE.md`
+sentence crediting `/json_all`'s breakage to helpers it does not call. **Both applied without a
+fourth review pass**, deliberately: the cap had been reached and each was a one-line prose fix
+verified on its own (`git branch -vv`, and reading `json_all`). The cap limits review→fix cycles,
+not fixes.
+
+Two process notes worth keeping:
+
+- **A verification harness is code and gets the same scepticism.** The first attempt to confirm the
+  three-route claim registered the route as `/json/<string:s>` while `read_json`'s parameter is
+  `streamer`, so Flask raised `TypeError` and *every* cell came back 500 — including the fixed one,
+  which looked briefly like the fix not working. The numbers only made sense because one row
+  disagreed with a result already obtained a different way. **When a check contradicts an earlier
+  observation, suspect the check.**
+- **The dashboard now has a reusable test fixture.** `tests/test_analytics_server.py` builds the
+  real `AnalyticsServer` from a `tmp_path` cwd — required, since `check_assets()` writes `./assets/`
+  into the working directory — and drives it with Flask's `test_client`. That is the technique PR
+  #48's review invented ad hoc; it is committed now. #36 and #26 are the next dashboard issues and
+  should start from it.
 
 ### PR #48, and what the container lane bought immediately
 
@@ -414,10 +464,16 @@ under a check showed host bytecode had been shipping inside it.
 **#46 is closed** (PR #48, `605e0b2`), and the prediction held exactly: the dependency question was
 one command, and answering it first is what kept the rest small.
 
-**Nothing is scheduled next.** The remaining open list is #49, #50, #36, #26, #24 and #16, with
-**#7 and #11** going upstream rather than being fixed here. #49 is the cheapest (two characters per
-site, at three sites) and the only one that is a live defect rather than tooling or polish; #45 (the
-token endpoint's three gaps) is still the best candidate if a login problem is ever reported.
+**#49 is in flight as PR #51** — see its section below. After it merges the remaining open list is
+#52, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather than being fixed here.
+#45 (the token endpoint's three gaps) is still the best candidate if a login problem is ever
+reported.
+
+**#52 is the natural successor to #51 and is the strongest of those on user impact.** PR #51 fixed
+two payload shapes; nine others still 500 all three routes, and because `/streamers` feeds the
+sidebar, one bad file empties the dashboard rather than breaking one chart. The harness to prove it
+already exists — `tests/test_analytics_server.py` plus the twelve-shape matrix in the review — so
+the expensive part is a decision about what the route should do, not the code.
 
 **#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
 indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20
@@ -509,6 +565,7 @@ user with the defaults.
 | ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
 | 49 | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | Open — split from PR #48's review |
 | 50 | Every action pin targets Node 20, force-run on Node 24 | S | n/a — tooling | n/a | Open — from the first `deploy-docker.yml` dispatch |
+| 52 | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | Open — split from PR #51's third review |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
