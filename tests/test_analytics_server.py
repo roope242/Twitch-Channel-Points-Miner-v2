@@ -222,6 +222,40 @@ def test_bad_date_param_is_not_reported_as_a_malformed_file(client):
         client.get("/json/streamer?startDate=notadate")
 
 
+def test_unrepresentably_large_x_reports_error_instead_of_500(client):
+    """An `x` past the float maximum raises OverflowError, not ValueError.
+
+    309 digits is the boundary: 308 converts and fails later as a ValueError, 309
+    cannot be converted at all. OverflowError is not a subclass of anything else in
+    the guard's tuple, so before it was listed this shape escaped and took the
+    aggregate routes with it.
+    """
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": int("9" * 309), "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    assert "streamer.json" in json.loads(response.data)["error"]
+
+
+def test_streamers_list_survives_an_unrepresentably_large_x(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics(
+        "broken",
+        {"series": [{"x": int("9" * 309), "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/streamers")
+
+    assert response.status_code == 200
+    listed = {entry["name"]: entry for entry in json.loads(response.data)}
+    assert listed["broken.json"]["points"] == 0
+    assert listed["healthy.json"]["points"] == 473082
+
+
 @pytest.fixture
 def east_of_utc(monkeypatch):
     """Pin a positive UTC offset so the date-overflow cases are reproducible.

@@ -152,7 +152,7 @@ def read_json(streamer, return_response=True):
     # Handle filtering data, if applicable
     try:
         filtered_data = filter_datas(start_date, end_date, data)
-    except (ValueError, AttributeError, KeyError, TypeError) as e:
+    except (ValueError, AttributeError, KeyError, TypeError, OverflowError) as e:
         error_message = (
             f"Error processing analytics data in file '{streamer}': {str(e)}"
         )

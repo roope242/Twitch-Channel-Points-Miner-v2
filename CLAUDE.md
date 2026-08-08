@@ -36,8 +36,8 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 74 tests (root conftest.py makes bare `pytest` work too)
-scripts/test-container.sh                  # same suite in the image that ships: 73 + 1 skipped (#33)
+.venv/bin/python -m pytest tests/ -q       # 76 tests (root conftest.py makes bare `pytest` work too)
+scripts/test-container.sh                  # same suite in the image that ships: 75 + 1 skipped (#33)
 (cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
 
@@ -45,11 +45,12 @@ scripts/test-container.sh                  # same suite in the image that ships:
 pasted whole from the repo root.)
 
 **The host and the container disagree about the clock.** The container runs UTC; a developer machine
-usually does not. `tests/test_analytics_server.py`'s `east_of_utc` fixture exists because four tests
-passed on a UTC+2 host and failed in the container — `datetime.timestamp()` overflows for
-`9999-12-31` east of UTC and not in UTC. Anything asserting on dates near the edges of the
-representable range must pin `TZ` and call `time.tzset()`, or it means different things in the two
-places CI runs it.
+usually does not. `tests/test_analytics_server.py`'s `east_of_utc` fixture exists because two
+assertions passed on a UTC+2 host and failed in the container: `datetime.timestamp()` overflows for
+`9999-12-31` east of UTC and **not** in UTC. (`0001-01-01` underflows in both, so only the upper
+bound actually discriminates — do not reach for it as a UTC/non-UTC test.) Anything asserting near
+the edges of the representable range must pin `TZ` and call `time.tzset()`, or it means different
+things in the two places CI runs it.
 
 All three run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python
 3.14, plus the container and jsdom legs). **Add to these rather than rebuilding a
