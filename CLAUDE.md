@@ -36,8 +36,8 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 59 tests (root conftest.py makes bare `pytest` work too)
-scripts/test-container.sh                  # same suite in the image that ships: 58 + 1 skipped (#33)
+.venv/bin/python -m pytest tests/ -q       # 60 tests (root conftest.py makes bare `pytest` work too)
+scripts/test-container.sh                  # same suite in the image that ships: 59 + 1 skipped (#33)
 (cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
 

@@ -54,7 +54,9 @@ def filter_datas(start_date, end_date, datas):
         else datetime.now()
     ).replace(hour=23, minute=59, second=59).timestamp() * 1000
 
-    original_series = datas.get("series", [])
+    # `or []` rather than a default: the key can be present and null, which the
+    # two-argument form passes straight through to `len()` below.
+    original_series = datas.get("series") or []
 
     # Truthiness, not membership: an empty list builds a column-less DataFrame,
     # so `df.x` below raises AttributeError and the route 500s.

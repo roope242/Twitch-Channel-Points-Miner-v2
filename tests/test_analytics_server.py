@@ -89,6 +89,16 @@ def test_populated_file_is_unchanged(client):
     assert body["annotations"] == ANNOTATIONS
 
 
+def test_null_lists_are_treated_as_empty(client):
+    """`{"series": null}` is a plausible hand-edit and reaches `len()` unguarded."""
+    client.write_analytics("streamer", {"series": None, "annotations": None})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 200
+    assert json.loads(response.data) == {"series": [], "annotations": []}
+
+
 def test_streamers_list_survives_an_empty_series(client):
     """`/streamers` reads the same files through `get_challenge_points`."""
     client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})

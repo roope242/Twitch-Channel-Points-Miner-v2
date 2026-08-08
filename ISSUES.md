@@ -133,9 +133,9 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `605e0b2` | Clean, pushed. Only branch, local and remote. |
+| `master` | `df20a44` | Clean, pushed. `fix-49-empty-series` is the one other branch, local and remote. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
-| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** One review pass, no code defects; its info finding (stale test counts in `CLAUDE.md`) fixed in-branch. Live-verified two-sided in the container. |
+| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** Two review passes; no critical or warning findings in either. Pass 1 found the stale `CLAUDE.md` test counts and the two extra broken routes; pass 2 found `"series": null` still 500ing at the boundary the first fix moved. Both applied in-branch. Live-verified two-sided in the container. |
 | **#49** | filed 2026-08-08 | **Fix open as PR #51.** `filter_datas` guarded a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
@@ -160,7 +160,8 @@ Do these in order at the beginning of a session, before starting anything new.
 | **#26** — polling chains accumulate, log chains duplicate | filed 2026-08-01 | Open. Both pre-existing, both observed in jsdom by the `pr-reviewer` agent on PR #25. Not scheduled. |
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
-Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+**PR #51 is in flight** — see "Next up" and the section below it. `master` and
+`fix-49-empty-series` are the only branches, local and remote.
 
 ### PR #51, and the route the issue did not name
 
@@ -175,6 +176,13 @@ described, in both directions:
   as well as `/json/<streamer>` — and `/streamers` is what populates the dashboard sidebar, so the
   practical symptom is a dashboard that renders nothing at all, not one chart that fails. The
   reviewer found this; two tests were added for it and the PR body corrected.
+
+- **The first fix moved a boundary and left a hole at it.** `original_series = datas.get("series",
+  [])` substitutes only when the key is *absent*, so once the guard below it became a truthiness
+  test, `"series": null` sailed past and died one line later on `len(None)` — all three routes, 500,
+  same as before. Not a regression (it 500'd pre-fix too, one line earlier), but the change had
+  moved the failure without closing it. `datas.get("series") or []`. **When a guard changes which
+  values reach the next line, re-read the next line.**
 
 Two process notes worth keeping:
 
