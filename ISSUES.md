@@ -9,7 +9,17 @@ this file and `CLAUDE.md`, can pick up exactly where the last one stopped. Keep 
 update the **Start here** and **In flight** sections at the end of every working session, before
 the context runs out.
 
-**Last updated:** 2026-08-08, end of session — **#49 closed** (PR #51, merge commit `c5699ba`).
+**Last updated:** 2026-08-08, end of session — **#52 closed** (PR #53, merge commit `30c6c29`), the
+second dashboard fix of the day. `read_json` now contains a misshapen analytics file instead of
+letting it raise: one bad file used to take out `/json/<streamer>`, `/streamers` *and* `/json_all`,
+and `/streamers` fills the sidebar, so the symptom was a dashboard rendering nothing rather than one
+broken chart. Three review passes, the cap, **and every one found something real** — pass 1 that the
+date pre-check validated format only (so `endDate=9999-12-31` blamed a healthy file, and `/streamers`
+answered 200 with `points: 0`); pass 2 that `OverflowError` is a subclass of nothing else in the
+tuple and escaped entirely; pass 3 that the branch's own new `CLAUDE.md` paragraph overclaimed.
+**#54 and #55 filed** for the two shapes still uncontained. Suite 60 → 76 host / 75 + 1 container.
+
+Earlier the same day — **#49 closed** (PR #51, merge commit `c5699ba`).
 `filter_datas` treats an empty or null `series`/`annotations` as the missing-key case, so the
 dashboard renders instead of 500ing. Three review passes, **the cap reached**, no critical or
 warning finding in any of them — but each pass widened the change: pass 1 found the fix repairs
@@ -144,10 +154,13 @@ Do these in order at the beginning of a session, before starting anything new.
 
 | What | Where | State |
 |---|---|---|
-| `master` | `c5699ba` | Clean, pushed. The only branch on the remote; see below for the local extras. |
+| `master` | `30c6c29` | Clean, pushed. The only branch on the remote; see below for the local extras. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
 | **PR #51** — issue #49, empty analytics list | merge commit `c5699ba` | **Merged 2026-08-08.** Three review passes, the cap; no critical or warning findings in any. CI green on 3.14/container/node against the exact head; live-verified two-sided in the container. Branch deleted on merge. |
-| **#52** | filed 2026-08-08 | Open, unscheduled. The general case PR #51 deferred: any analytics file that parses but is misshapen 500s all three routes, so one bad file blanks the whole dashboard. Nine of twelve probed payload shapes still fail. |
+| **PR #53** — issue #52, malformed analytics file | merge commit `30c6c29` | **Merged 2026-08-08.** Three review passes, the cap, each finding something real. CI green on 3.14/container/node against the exact head. Branch deleted on merge. |
+| **#52** | merge commit `30c6c29` | **Closed 2026-08-08** (PR #53). |
+| **#54** | filed 2026-08-08 | Open, unscheduled. A `NaN` serves a 200 with a body no browser can parse, from two triggers — the literal token, and pandas manufacturing one when *some* points lack `y`. Fails on the way **out**, so #52's guard cannot see it. |
+| **#55** | filed 2026-08-08 | Open, unscheduled. A file that never *decodes* (UTF-16, latin-1, binary, bad permissions) still takes all three routes down — the read's `except json.JSONDecodeError` sits above #52's guard. |
 | **#49** | merge commit `c5699ba` | **Closed 2026-08-08** (PR #51). Filed and fixed the same day, the first issue in this repo to go from a review finding to merged inside one session. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
@@ -177,6 +190,45 @@ are two leftovers, both harmless and both deletable: `fix-49-empty-series` (merg
 so `git branch -vv` marks it `[gone]`) and `tmp-leak-check` (`f6981e2`), the scratch branch from the
 `check-ignore --no-index` experiment written up under PR #47 — it holds a 13-byte *fake*
 `cookies/leaktest.pkl`, was never pushed, and exists only as the worked example.
+
+### PR #53 — malformed analytics file (issue #52, `30c6c29`)
+
+Three review passes, the cap, and unlike PR #51 **every pass found a defect in the code**, each one
+narrower than the last and each inside the branch's own claim:
+
+1. **The date pre-check validated format only.** It exists so a bad `?startDate=` is not reported as
+   a corrupt file — but `9999-12-31` *parses* and then overflows to year 10000 on `.timestamp()`, so
+   it reached the guard and named a healthy file, in the response and in the log. Worse,
+   `/streamers` answered **200 with `points: 0`** for healthy streamers: the "removing a crash is not
+   the same as handling a failure" shape from #13, reintroduced in a new place.
+2. **`OverflowError` is a subclass of nothing else in the tuple.** An `x` past the float maximum
+   escaped the guard and took all three routes with it — the exact failure the branch existed to
+   remove, still open one exception type wide. Boundary measured: 308 digits contained, 309 escaped.
+3. **The branch's own new `CLAUDE.md` paragraph overclaimed**, saying a malformed file is contained
+   full stop. True for files that parse, false for files that never decode.
+
+Four things worth carrying:
+
+- **A guard is only as wide as its exception tuple, and subclass intuition is unreliable.**
+  `UnicodeDecodeError` *is* a `ValueError`; `OverflowError` is not. One of those facts helps and the
+  other bites, and neither is visible while reading the tuple. Probe the shapes.
+- **Where a guard sits decides what it can ever see.** #55 escapes because the read's `except` is
+  *above* this one; #54 escapes because `json.dumps` is *below* it. Both were filed rather than
+  patched, because widening this guard cannot reach either — the fix has to move.
+- **A test that passes on both revisions can still be worth writing, if you say why.**
+  `test_bad_date_param_is_not_reported_as_a_malformed_file` cannot fail at base, since at base there
+  is no guard to misattribute anything. Its teeth were shown by deleting the pre-check instead. Stating
+  that is what keeps the verification table honest.
+- **The container and the host disagree about the clock**, and four date tests found out the hard
+  way: they passed on a UTC+2 host and failed inside the image, because `datetime.timestamp()`
+  overflows for `9999-12-31` east of UTC and not in UTC. `tests/test_analytics_server.py`'s
+  `east_of_utc` fixture pins `TZ`; `CLAUDE.md` records it. Only the upper bound discriminates —
+  `0001-01-01` underflows in both, which the third pass corrected after the second overstated it.
+
+The PR body was also rewritten wholesale at the end rather than patched again: after three rounds of
+sed-style edits it described the *first* commit — 74 tests where there were 76, nine base failures
+where there were eleven, four caught types where the code shipped five. **Prose about verification
+rots faster than the verification does**, which this file has now recorded three times.
 
 ### PR #51 — empty analytics list (issue #49, `c5699ba`)
 
@@ -476,15 +528,20 @@ under a check showed host bytecode had been shipping inside it.
 one command, and answering it first is what kept the rest small.
 
 **#49 is closed** (PR #51, `c5699ba`) — see its section below. **Nothing is scheduled next.** The
-remaining open list is #52, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather
+remaining open list is #54, #55, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather
 than being fixed here. #45 (the token endpoint's three gaps) is still the best candidate if a login
 problem is ever reported.
 
-**#52 is the natural successor to #51 and is the strongest of those on user impact.** PR #51 fixed
-two payload shapes; nine others still 500 all three routes, and because `/streamers` feeds the
-sidebar, one bad file empties the dashboard rather than breaking one chart. The harness to prove it
-already exists — `tests/test_analytics_server.py` plus the twelve-shape matrix in the review — so
-the expensive part is a decision about what the route should do, not the code.
+**#54 and #55 are what #52 left, and they are best done together.** Both produce the same symptom —
+an empty dashboard from one bad file — and both sit *outside* the guard PR #53 added, in opposite
+directions: #55 fails on the way in, before the file is even decoded, and #54 fails on the way out,
+during serialisation. Neither is reachable by widening #52's guard, which is the thing to understand
+before starting either. Doing them in one branch means one pass over `read_json`'s error handling
+rather than three, and `tests/test_analytics_server.py` already has the harness for both.
+
+**Read #54's comment thread before scoping it.** The obvious fix — reject `NaN` on load — handles
+only one of its two triggers. pandas *manufactures* a `NaN` when some points lack `y` but not all,
+which no input validation can see, so the serialisation side has to be covered either way.
 
 **#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
 indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20
@@ -576,7 +633,9 @@ user with the defaults.
 | ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
 | ~~49~~ | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | **Closed** — PR #51, `c5699ba` |
 | 50 | Every action pin targets Node 20, force-run on Node 24 | S | n/a — tooling | n/a | Open — from the first `deploy-docker.yml` dispatch |
-| 52 | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | Open — split from PR #51's third review |
+| ~~52~~ | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | **Closed** — PR #53, `30c6c29` |
+| 54 | A `NaN` serves a 200 the browser cannot parse | S | Low | Med | Open — split from PR #53's reviews |
+| 55 | A file that never decodes still 500s all three routes | S | Low | Med | Open — split from PR #53's third review |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |
