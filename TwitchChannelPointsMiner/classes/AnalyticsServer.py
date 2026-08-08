@@ -136,8 +136,35 @@ def read_json(streamer, return_response=True):
         else:
             return {"error": error_message}
 
+    # `filter_datas` converts these same startDate/endDate strings as its very first
+    # step. Repeating the identical conversion here, ahead of the malformed-data
+    # guard below, keeps a bad date failing as itself instead of being caught by that
+    # guard and misreported as a corrupt file. Parsing alone is not enough: a date
+    # can match the format and still overflow on `.timestamp()`, so these must mirror
+    # what `filter_datas` does, including the end-of-day `replace`.
+    if start_date is not None:
+        datetime.strptime(start_date, "%Y-%m-%d").timestamp()
+    if end_date is not None:
+        datetime.strptime(end_date, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59
+        ).timestamp()
+
     # Handle filtering data, if applicable
-    filtered_data = filter_datas(start_date, end_date, data)
+    try:
+        filtered_data = filter_datas(start_date, end_date, data)
+    except (ValueError, AttributeError, KeyError, TypeError, OverflowError) as e:
+        error_message = (
+            f"Error processing analytics data in file '{streamer}': {str(e)}"
+        )
+        logger.error(error_message)
+        if return_response:
+            return Response(
+                json.dumps({"error": error_message}),
+                status=500,
+                mimetype="application/json",
+            )
+        else:
+            return {"error": error_message}
     if return_response:
         return Response(json.dumps(filtered_data), status=200, mimetype="application/json")
     else:

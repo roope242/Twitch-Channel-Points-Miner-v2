@@ -6,6 +6,7 @@ tmp_path rather than the repo root.
 """
 
 import json
+import time
 
 import pytest
 
@@ -121,6 +122,210 @@ def test_json_all_survives_an_empty_series(client):
     assert response.status_code == 200
     bundled = {entry["name"]: entry["data"] for entry in json.loads(response.data)}
     assert bundled["emptied"]["series"] == []
+    assert bundled["healthy"]["series"] == SERIES
+
+
+def test_point_with_no_x_reports_error_instead_of_500(client):
+    """A hand-trimmed series can leave a point with no `x` -- `df.x` raises AttributeError."""
+    client.write_analytics("streamer", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_series_as_dict_reports_error_instead_of_500(client):
+    """`series` as a dict makes `pd.DataFrame` raise ValueError, not build columns."""
+    client.write_analytics("streamer", {"series": {"a": 1, "b": 2}, "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_series_as_number_reports_error_instead_of_500(client):
+    client.write_analytics("streamer", {"series": 5, "annotations": []})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_top_level_array_reports_error_instead_of_500(client):
+    """A bare JSON array at the top level has no `.get`, unlike the expected dict."""
+    client.write_analytics("streamer", [{"series": []}])
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_annotation_with_no_x_reports_error_instead_of_500(client):
+    client.write_analytics("streamer", {"series": SERIES, "annotations": [{"y": 0}]})
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_point_with_no_y_reports_error_instead_of_500(client):
+    """A point missing `y` makes `sort_values(by=["x", "y"])` raise KeyError."""
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": 1785170438000, "z": "Watch"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_point_with_string_x_reports_error_instead_of_500(client):
+    """A timestamp left as a string makes `df.x // 1000` raise TypeError."""
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": "abc", "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    body = json.loads(response.data)
+    assert "streamer.json" in body["error"]
+
+
+def test_bad_date_param_is_not_reported_as_a_malformed_file(client):
+    """A bad `?startDate=` must not be misdiagnosed as a corrupt analytics file.
+
+    `filter_datas` parses startDate/endDate before touching the file data, so this
+    is a different failure than the malformed-shape cases above. It must not be
+    caught by the "Error processing analytics data in file ..." guard -- Flask's
+    TESTING mode propagates unhandled exceptions rather than turning them into a
+    response, which is exactly the pre-existing (unchanged) behaviour this test
+    pins: a plain, unguarded `ValueError`, not our file-naming error branch.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get("/json/streamer?startDate=notadate")
+
+
+def test_unrepresentably_large_x_reports_error_instead_of_500(client):
+    """An `x` past the float maximum raises OverflowError, not ValueError.
+
+    309 digits is the boundary: 308 converts and fails later as a ValueError, 309
+    cannot be converted at all. OverflowError is not a subclass of anything else in
+    the guard's tuple, so before it was listed this shape escaped and took the
+    aggregate routes with it.
+    """
+    client.write_analytics(
+        "streamer",
+        {"series": [{"x": int("9" * 309), "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/json/streamer")
+
+    assert response.status_code == 500
+    assert "streamer.json" in json.loads(response.data)["error"]
+
+
+def test_streamers_list_survives_an_unrepresentably_large_x(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics(
+        "broken",
+        {"series": [{"x": int("9" * 309), "y": 1, "z": "W"}], "annotations": []},
+    )
+
+    response = client.get("/streamers")
+
+    assert response.status_code == 200
+    listed = {entry["name"]: entry for entry in json.loads(response.data)}
+    assert listed["broken.json"]["points"] == 0
+    assert listed["healthy.json"]["points"] == 473082
+
+
+@pytest.fixture
+def east_of_utc(monkeypatch):
+    """Pin a positive UTC offset so the date-overflow cases are reproducible.
+
+    Whether `9999-12-31` overflows `.timestamp()` depends on the host's offset: it
+    does east of UTC and does not in UTC itself, so these tests pass on a developer
+    machine in Helsinki and fail in the container, which runs UTC. Pinning the zone
+    is what makes them mean the same thing in both places.
+    """
+    monkeypatch.setenv("TZ", "Europe/Helsinki")
+    time.tzset()
+    yield
+    # monkeypatch restores TZ, but tzset must be re-run for it to take effect.
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize("query", ["endDate=9999-12-31", "startDate=0001-01-01"])
+def test_out_of_range_date_is_not_reported_as_a_malformed_file(
+    client, east_of_utc, query
+):
+    """A date that parses but overflows `.timestamp()` is still a date problem.
+
+    `9999-12-31` becomes year 10000 once `filter_datas` pushes it to end-of-day and
+    converts to a local timestamp; `0001-01-01` underflows the same way. Checking
+    only the format lets both through to the malformed-data guard, which then names
+    a perfectly healthy file as the culprit.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get(f"/json/streamer?{query}")
+
+
+@pytest.mark.parametrize("query", ["endDate=9999-12-31", "startDate=0001-01-01"])
+def test_out_of_range_date_does_not_silently_zero_the_streamers_list(
+    client, east_of_utc, query
+):
+    """The worse half of the same bug: `/streamers` would answer 200 with zeros.
+
+    A healthy streamer reported as `points: 0` is a wrong number presented as a
+    right one, which is worse than the failure it replaced.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get(f"/streamers?{query}")
+
+
+def test_streamers_list_survives_a_malformed_file(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("broken", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/streamers")
+
+    assert response.status_code == 200
+    listed = {entry["name"]: entry for entry in json.loads(response.data)}
+    assert listed["broken.json"]["points"] == 0
+    assert listed["healthy.json"]["points"] == 473082
+
+
+def test_json_all_survives_a_malformed_file(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("broken", {"series": [{"y": 4000}], "annotations": []})
+
+    response = client.get("/json_all")
+
+    assert response.status_code == 200
+    bundled = {entry["name"]: entry["data"] for entry in json.loads(response.data)}
+    assert "error" in bundled["broken"]
     assert bundled["healthy"]["series"] == SERIES
 
 
