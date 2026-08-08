@@ -175,7 +175,21 @@ annotations and nothing type-checks it in CI, so `basic` mode produces a page of
 untyped legacy code — 14 errors in `AnalyticsServer.py` alone, none actionable — and buries the
 navigation the LSP is actually there for. Hover, go-to-definition and find-references all still work
 with it off; only diagnostics are suppressed. If anyone ever wants real type checking, that is a
-project, not a config flag.
+project, not a config flag — #56 is the first step and measures what it would buy.
+
+**Use `findReferences` for blast radius, and trust it over grep.** That is the question this repo
+punishes you for getting wrong, and it asks it constantly: `read_json` looks like one route's helper
+and has three callers, so a change to `filter_datas` can empty the whole dashboard. Multi-line calls
+hide from `grep`, name-mangled `__private` methods and `__slots__` classes make a missed reference a
+runtime `AttributeError`, and #52's whole cost was a blast radius the issue got wrong. The LSP
+answers it exactly, including URL-rule registrations that read as strings.
+
+What it will **not** do here, on the evidence of #49 and #52: find bugs. Every real defect those two
+issues turned up — an empty list reaching `df.x`, `OverflowError` missing from an except tuple, a
+date overflowing `.timestamp()` — is invisible to a type checker on unannotated code, and so are the
+two things that break this project most often, rotated GraphQL hashes and the unlocked shared
+streamer list. Treat it as navigation. `CLAUDE.md`'s own rule still holds: static checks are not
+verification.
 
 The repo is **not** uniformly black-formatted despite the hook — large parts of `Twitch.py`,
 `AnalyticsServer.py`, and `TwitchChannelPointsMiner.py` predate it. Write new code black-clean, but
