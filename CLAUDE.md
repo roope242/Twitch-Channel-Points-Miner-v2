@@ -36,8 +36,8 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 51 tests (root conftest.py makes bare `pytest` work too)
-scripts/test-container.sh                  # same suite in the image that ships: 50 + 1 skipped (#33)
+.venv/bin/python -m pytest tests/ -q       # 59 tests (root conftest.py makes bare `pytest` work too)
+scripts/test-container.sh                  # same suite in the image that ships: 58 + 1 skipped (#33)
 (cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
 
@@ -302,6 +302,14 @@ installs on the next start — no README warning needed, and nothing is fetched 
 
 The server is unauthenticated and defaults to binding `127.0.0.1`. It now has one state-changing
 route (`POST /refresh_followers`); keep that in mind before adding more.
+
+**Test it with Flask's `test_client` from a tmp working directory** — `tests/test_analytics_server.py`
+(added in #49) is the pattern. The tmp cwd is not optional: `AnalyticsServer.__init__` calls
+`check_assets()`, which writes `./assets/` into whatever directory you are in, so running it from the
+repo root dirties the tree. Point `Settings.analytics_path` at a tmp dir and write JSON fixtures into
+it. **`/json/<streamer>` is not the only route that reads those files** — `get_challenge_points` and
+`get_last_activity` call `read_json` too, so `/streamers` and `/json_all` fail on the same malformed
+input; check all three when touching `filter_datas`.
 
 `charts.html` pins its CDN includes with sha512 SRI. Regenerate with python `hashlib` — **`openssl`
 is not installed here** — and cross-check against `api.cdnjs.com/libraries/<lib>/<ver>?fields=sri`

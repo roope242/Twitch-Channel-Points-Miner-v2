@@ -135,7 +135,8 @@ Do these in order at the beginning of a session, before starting anything new.
 |---|---|---|
 | `master` | `605e0b2` | Clean, pushed. Only branch, local and remote. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
-| **#49** | filed 2026-08-08 | Open, unscheduled. `filter_datas` guards a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
+| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** One review pass, no code defects; its info finding (stale test counts in `CLAUDE.md`) fixed in-branch. Live-verified two-sided in the container. |
+| **#49** | filed 2026-08-08 | **Fix open as PR #51.** `filter_datas` guarded a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
 | **PR #44** — issues #42 + #43 + #40, bounded device endpoint | merge commit `2022dc8` | **Merged 2026-08-07.** Two review passes; CI green on 3.9/3.13/node; 51 pytest + 21 jsdom. Not live-verifiable — valid cookies skip `login_flow()` entirely. Branch deleted on merge. |
@@ -160,6 +161,34 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 Nothing is in flight — see "Next up". `master` is the only branch, local and remote.
+
+### PR #51, and the route the issue did not name
+
+The fix is the two characters #49 predicted, but the blast radius was three times what the issue
+described, in both directions:
+
+- **The issue named three sites needing the change; only two do.** The `original_series` fallback
+  is already gated on `len(original_series) > 0`, so it can never reach `pd.DataFrame` with an
+  empty list. Checked rather than patched.
+- **The issue named one broken route; three are broken.** `get_challenge_points` and
+  `get_last_activity` call `read_json` too, so an empty `series` 500'd `/streamers` and `/json_all`
+  as well as `/json/<streamer>` — and `/streamers` is what populates the dashboard sidebar, so the
+  practical symptom is a dashboard that renders nothing at all, not one chart that fails. The
+  reviewer found this; two tests were added for it and the PR body corrected.
+
+Two process notes worth keeping:
+
+- **A verification harness is code and gets the same scepticism.** The first attempt to confirm the
+  three-route claim registered the route as `/json/<string:s>` while `read_json`'s parameter is
+  `streamer`, so Flask raised `TypeError` and *every* cell came back 500 — including the fixed one,
+  which looked briefly like the fix not working. The numbers only made sense because one row
+  disagreed with a result already obtained a different way. **When a check contradicts an earlier
+  observation, suspect the check.**
+- **The dashboard now has a reusable test fixture.** `tests/test_analytics_server.py` builds the
+  real `AnalyticsServer` from a `tmp_path` cwd — required, since `check_assets()` writes `./assets/`
+  into the working directory — and drives it with Flask's `test_client`. That is the technique PR
+  #48's review invented ad hoc; it is committed now. #36 and #26 are the next dashboard issues and
+  should start from it.
 
 ### PR #48, and what the container lane bought immediately
 
@@ -414,10 +443,9 @@ under a check showed host bytecode had been shipping inside it.
 **#46 is closed** (PR #48, `605e0b2`), and the prediction held exactly: the dependency question was
 one command, and answering it first is what kept the rest small.
 
-**Nothing is scheduled next.** The remaining open list is #49, #50, #36, #26, #24 and #16, with
-**#7 and #11** going upstream rather than being fixed here. #49 is the cheapest (two characters per
-site, at three sites) and the only one that is a live defect rather than tooling or polish; #45 (the
-token endpoint's three gaps) is still the best candidate if a login problem is ever reported.
+**#49 is in flight as PR #51** — see its section below. After it merges the remaining open list is
+#50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather than being fixed here. #45
+(the token endpoint's three gaps) is still the best candidate if a login problem is ever reported.
 
 **#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
 indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20

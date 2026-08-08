@@ -89,6 +89,31 @@ def test_populated_file_is_unchanged(client):
     assert body["annotations"] == ANNOTATIONS
 
 
+def test_streamers_list_survives_an_empty_series(client):
+    """`/streamers` reads the same files through `get_challenge_points`."""
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("emptied", {"series": [], "annotations": []})
+
+    response = client.get("/streamers")
+
+    assert response.status_code == 200
+    listed = {entry["name"]: entry for entry in json.loads(response.data)}
+    assert listed["emptied.json"]["points"] == 0
+    assert listed["healthy.json"]["points"] == 473082
+
+
+def test_json_all_survives_an_empty_series(client):
+    client.write_analytics("healthy", {"series": SERIES, "annotations": ANNOTATIONS})
+    client.write_analytics("emptied", {"series": [], "annotations": []})
+
+    response = client.get("/json_all")
+
+    assert response.status_code == 200
+    bundled = {entry["name"]: entry["data"] for entry in json.loads(response.data)}
+    assert bundled["emptied"]["series"] == []
+    assert bundled["healthy"]["series"] == SERIES
+
+
 def test_no_stream_fallback_still_fires(client):
     """A date window past the last data point yields the straight-line filler.
 
