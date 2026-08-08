@@ -56,7 +56,9 @@ def filter_datas(start_date, end_date, datas):
 
     original_series = datas.get("series", [])
 
-    if "series" in datas:
+    # Truthiness, not membership: an empty list builds a column-less DataFrame,
+    # so `df.x` below raises AttributeError and the route 500s.
+    if datas.get("series"):
         df = pd.DataFrame(datas["series"])
         df["datetime"] = pd.to_datetime(df.x // 1000, unit="s")
 
@@ -88,7 +90,7 @@ def filter_datas(start_date, end_date, datas):
             datas["series"] = [{'x': start_date, 'y': last_balance, 'z': 'No Stream'}, {
                 'x': end_date, 'y': last_balance, 'z': 'No Stream'}]
 
-    if "annotations" in datas:
+    if datas.get("annotations"):
         df = pd.DataFrame(datas["annotations"])
         df["datetime"] = pd.to_datetime(df.x // 1000, unit="s")
 
