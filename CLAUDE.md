@@ -317,12 +317,17 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
 repo root dirties the tree. Point `Settings.analytics_path` at a tmp dir and write JSON fixtures into
 it. **`/json/<streamer>` is not the only route that reads those files.** `read_json` has three
 callers: the route itself, `json_all()` directly, and `get_challenge_points`/`get_last_activity`,
-which is how `/streamers` reaches it. Since #52 a malformed file is **contained** — `read_json`
-returns an error naming the file, the two getters fall through to `0`, and `/streamers` and
-`/json_all` stay up listing everyone else. Do not undo that by making `read_json` raise again:
-`/streamers` fills the dashboard sidebar, so anything that escapes it empties the whole dashboard
-rather than breaking one chart. Grep `read_json`, not the helpers, when working out the blast radius
-of a change to `filter_datas`.
+which is how `/streamers` reaches it. `/streamers` fills the dashboard sidebar, so anything that
+escapes `read_json` empties the whole dashboard rather than breaking one chart. Grep `read_json`, not
+the helpers, when working out the blast radius of a change to `filter_datas`.
+
+**Containment is partial, and the boundary is where the file is decoded.** Since #52, a file that
+*parses* and then turns out to be misshapen is contained: `read_json` returns an error naming it, the
+two getters fall through to `0`, and the other streamers still list. A file that never decodes is
+not — the read at `AnalyticsServer.py:128` catches `json.JSONDecodeError` only, which sits *above*
+that guard, so `UnicodeDecodeError` (a UTF-16 or ANSI-saved file) and `OSError` (bad permissions)
+still take all three routes down. That is #55, not something to rediscover. Do not weaken what is
+contained today by making `read_json` raise again.
 
 **The date parameters are the sharp edge in `read_json`.** `filter_datas` converts
 `startDate`/`endDate` before it touches the file, so a bad date raises from the same call a
