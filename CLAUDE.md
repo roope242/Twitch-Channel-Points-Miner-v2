@@ -36,13 +36,20 @@ There is a test suite (since #27) but no build step, and the suite covers a deli
 slice — everything provable without live Twitch auth. Run it before calling anything done:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q       # 70 tests (root conftest.py makes bare `pytest` work too)
-scripts/test-container.sh                  # same suite in the image that ships: 69 + 1 skipped (#33)
+.venv/bin/python -m pytest tests/ -q       # 74 tests (root conftest.py makes bare `pytest` work too)
+scripts/test-container.sh                  # same suite in the image that ships: 73 + 1 skipped (#33)
 (cd tests/js && npm ci && node --test)     # 21 jsdom assertions against the real script.js
 ```
 
 (The jsdom line is parenthesised so the `cd` does not survive it — the block is meant to be
 pasted whole from the repo root.)
+
+**The host and the container disagree about the clock.** The container runs UTC; a developer machine
+usually does not. `tests/test_analytics_server.py`'s `east_of_utc` fixture exists because four tests
+passed on a UTC+2 host and failed in the container — `datetime.timestamp()` overflows for
+`9999-12-31` east of UTC and not in UTC. Anything asserting on dates near the edges of the
+representable range must pin `TZ` and call `time.tzset()`, or it means different things in the two
+places CI runs it.
 
 All three run in CI on every PR and every push to `master` (`.github/workflows/tests.yml`, Python
 3.14, plus the container and jsdom legs). **Add to these rather than rebuilding a
@@ -309,10 +316,20 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
 repo root dirties the tree. Point `Settings.analytics_path` at a tmp dir and write JSON fixtures into
 it. **`/json/<streamer>` is not the only route that reads those files.** `read_json` has three
 callers: the route itself, `json_all()` directly, and `get_challenge_points`/`get_last_activity`,
-which is how `/streamers` reaches it. So one malformed analytics file 500s all three routes — and
-`/streamers` is what fills the dashboard sidebar, so the symptom is a dashboard that renders nothing
-rather than one chart that fails. Grep `read_json`, not the helpers, when working out the blast
-radius of a change to `filter_datas`.
+which is how `/streamers` reaches it. Since #52 a malformed file is **contained** — `read_json`
+returns an error naming the file, the two getters fall through to `0`, and `/streamers` and
+`/json_all` stay up listing everyone else. Do not undo that by making `read_json` raise again:
+`/streamers` fills the dashboard sidebar, so anything that escapes it empties the whole dashboard
+rather than breaking one chart. Grep `read_json`, not the helpers, when working out the blast radius
+of a change to `filter_datas`.
+
+**The date parameters are the sharp edge in `read_json`.** `filter_datas` converts
+`startDate`/`endDate` before it touches the file, so a bad date raises from the same call a
+malformed file does. `read_json` repeats that conversion *ahead* of the malformed-data guard
+specifically so the two causes stay distinguishable — and it must repeat it exactly, `.timestamp()`
+and the end-of-day `.replace()` included. Checking only the format is not enough: `9999-12-31`
+parses fine and then overflows to year 10000, which without the full pre-check gets reported as a
+corrupt analytics file, and turns `/streamers` into a 200 full of zeros for healthy streamers.
 
 `charts.html` pins its CDN includes with sha512 SRI. Regenerate with python `hashlib` — **`openssl`
 is not installed here** — and cross-check against `api.cdnjs.com/libraries/<lib>/<ver>?fields=sri`

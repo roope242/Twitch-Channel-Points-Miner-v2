@@ -136,14 +136,18 @@ def read_json(streamer, return_response=True):
         else:
             return {"error": error_message}
 
-    # `filter_datas` parses these same startDate/endDate strings again as its very
-    # first step. Validating them here, before the malformed-data guard below, means
-    # a bad `?startDate=` still raises unguarded (unchanged existing behaviour)
-    # instead of being caught by that guard and misreported as a corrupt file.
+    # `filter_datas` converts these same startDate/endDate strings as its very first
+    # step. Repeating the identical conversion here, ahead of the malformed-data
+    # guard below, keeps a bad date failing as itself instead of being caught by that
+    # guard and misreported as a corrupt file. Parsing alone is not enough: a date
+    # can match the format and still overflow on `.timestamp()`, so these must mirror
+    # what `filter_datas` does, including the end-of-day `replace`.
     if start_date is not None:
-        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(start_date, "%Y-%m-%d").timestamp()
     if end_date is not None:
-        datetime.strptime(end_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59
+        ).timestamp()
 
     # Handle filtering data, if applicable
     try:

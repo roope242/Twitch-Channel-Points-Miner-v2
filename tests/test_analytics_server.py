@@ -6,6 +6,7 @@ tmp_path rather than the repo root.
 """
 
 import json
+import time
 
 import pytest
 
@@ -219,6 +220,55 @@ def test_bad_date_param_is_not_reported_as_a_malformed_file(client):
 
     with pytest.raises(ValueError):
         client.get("/json/streamer?startDate=notadate")
+
+
+@pytest.fixture
+def east_of_utc(monkeypatch):
+    """Pin a positive UTC offset so the date-overflow cases are reproducible.
+
+    Whether `9999-12-31` overflows `.timestamp()` depends on the host's offset: it
+    does east of UTC and does not in UTC itself, so these tests pass on a developer
+    machine in Helsinki and fail in the container, which runs UTC. Pinning the zone
+    is what makes them mean the same thing in both places.
+    """
+    monkeypatch.setenv("TZ", "Europe/Helsinki")
+    time.tzset()
+    yield
+    # monkeypatch restores TZ, but tzset must be re-run for it to take effect.
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize("query", ["endDate=9999-12-31", "startDate=0001-01-01"])
+def test_out_of_range_date_is_not_reported_as_a_malformed_file(
+    client, east_of_utc, query
+):
+    """A date that parses but overflows `.timestamp()` is still a date problem.
+
+    `9999-12-31` becomes year 10000 once `filter_datas` pushes it to end-of-day and
+    converts to a local timestamp; `0001-01-01` underflows the same way. Checking
+    only the format lets both through to the malformed-data guard, which then names
+    a perfectly healthy file as the culprit.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get(f"/json/streamer?{query}")
+
+
+@pytest.mark.parametrize("query", ["endDate=9999-12-31", "startDate=0001-01-01"])
+def test_out_of_range_date_does_not_silently_zero_the_streamers_list(
+    client, east_of_utc, query
+):
+    """The worse half of the same bug: `/streamers` would answer 200 with zeros.
+
+    A healthy streamer reported as `points: 0` is a wrong number presented as a
+    right one, which is worse than the failure it replaced.
+    """
+    client.write_analytics("streamer", {"series": SERIES, "annotations": ANNOTATIONS})
+
+    with pytest.raises(ValueError):
+        client.get(f"/streamers?{query}")
 
 
 def test_streamers_list_survives_a_malformed_file(client):
