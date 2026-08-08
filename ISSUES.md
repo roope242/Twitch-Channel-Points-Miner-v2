@@ -135,7 +135,8 @@ Do these in order at the beginning of a session, before starting anything new.
 |---|---|---|
 | `master` | `df20a44` | Clean, pushed. `fix-49-empty-series` is the one other branch, local and remote. |
 | **PR #48** — issue #46, Python floor 3.14 | merge commit `605e0b2` | **Merged 2026-08-08.** Two review passes, second CLEAN; CI green on 3.14/container/node; live-verified. One later commit (`72fed71`, a README sentence) landed after the clean review and was not covered by it. |
-| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** Two review passes; no critical or warning findings in either. Pass 1 found the stale `CLAUDE.md` test counts and the two extra broken routes; pass 2 found `"series": null` still 500ing at the boundary the first fix moved. Both applied in-branch. Live-verified two-sided in the container. |
+| **PR #51** — issue #49, empty analytics list | branch `fix-49-empty-series` | **Open.** Three review passes, the cap; no critical or warning findings in any. Pass 1 found the stale `CLAUDE.md` test counts and the two extra broken routes; pass 2 found `"series": null` still 500ing at the boundary the first fix moved. Both applied in-branch. Live-verified two-sided in the container. |
+| **#52** | filed 2026-08-08 | Open, unscheduled. The general case PR #51 deferred: any analytics file that parses but is misshapen 500s all three routes, so one bad file blanks the whole dashboard. Nine of twelve probed payload shapes still fail. |
 | **#49** | filed 2026-08-08 | **Fix open as PR #51.** `filter_datas` guarded a missing `series` key but not an empty one — 500 from the dashboard. Pre-existing and version-independent; found while exercising pandas 3.0 for #46. |
 | **PR #47** — issue #33, container test lane | merge commit `2397ca2` | **Merged 2026-08-07.** Three review passes, cap reached; CI green on 3.9/3.10/3.13/container/node. Branch deleted on merge. |
 | **#46** | filed 2026-08-07 | Open, unscheduled. The Python support floor: `python_requires>=3.9` is past EOL and the image's 3.10 is close. Filed at the user's request while #33 was in flight. |
@@ -161,7 +162,10 @@ Do these in order at the beginning of a session, before starting anything new.
 | **PR #22** — issue #12, untrusted-text sinks | merge commit `74eb9a8` | **Merged 2026-07-31.** Reviewed clean — "no actionable comments", range `34c1181..07e94d1`, the branch head. |
 
 **PR #51 is in flight** — see "Next up" and the section below it. `master` and
-`fix-49-empty-series` are the only branches, local and remote.
+`fix-49-empty-series` are the only branches **on the remote**. Locally there is also
+`tmp-leak-check` (`f6981e2`), the scratch branch from the `check-ignore --no-index` experiment
+written up under PR #47; it holds a 13-byte fake `cookies/leaktest.pkl`, was never pushed, and can
+be deleted once nobody wants the worked example.
 
 ### PR #51, and the route the issue did not name
 
@@ -183,6 +187,15 @@ described, in both directions:
   same as before. Not a regression (it 500'd pre-fix too, one line earlier), but the change had
   moved the failure without closing it. `datas.get("series") or []`. **When a guard changes which
   values reach the next line, re-read the next line.**
+
+The third pass found no code defects and its regression matrix is the useful artefact: twelve
+payload shapes × three routes, on base and head, with **exactly two rows changing**, both 500 → 200.
+That is the shape of evidence that a small guard change did not quietly move anything else. Its two
+findings were doc accuracy — a third local branch this file said did not exist, and a `CLAUDE.md`
+sentence crediting `/json_all`'s breakage to helpers it does not call. **Both applied without a
+fourth review pass**, deliberately: the cap had been reached and each was a one-line prose fix
+verified on its own (`git branch -vv`, and reading `json_all`). The cap limits review→fix cycles,
+not fixes.
 
 Two process notes worth keeping:
 
@@ -452,8 +465,15 @@ under a check showed host bytecode had been shipping inside it.
 one command, and answering it first is what kept the rest small.
 
 **#49 is in flight as PR #51** — see its section below. After it merges the remaining open list is
-#50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather than being fixed here. #45
-(the token endpoint's three gaps) is still the best candidate if a login problem is ever reported.
+#52, #50, #36, #26, #24 and #16, with **#7 and #11** going upstream rather than being fixed here.
+#45 (the token endpoint's three gaps) is still the best candidate if a login problem is ever
+reported.
+
+**#52 is the natural successor to #51 and is the strongest of those on user impact.** PR #51 fixed
+two payload shapes; nine others still 500 all three routes, and because `/streamers` feeds the
+sidebar, one bad file empties the dashboard rather than breaking one chart. The harness to prove it
+already exists — `tests/test_analytics_server.py` plus the twelve-shape matrix in the review — so
+the expensive part is a decision about what the route should do, not the code.
 
 **#50 is not urgent but has an unusual failure shape**, which is the argument for not leaving it
 indefinitely: `deploy-docker.yml` runs only on tag pushes and manual dispatch, so when the Node 20
@@ -545,6 +565,7 @@ user with the defaults.
 | ~~46~~ | Python floor is past EOL; image runs 3.10 | M | n/a — maintenance | Med | **Closed** — PR #48, `605e0b2` |
 | 49 | Empty `series` list returns a 500 from the dashboard | XS | Low | Low | Open — split from PR #48's review |
 | 50 | Every action pin targets Node 20, force-run on Node 24 | S | n/a — tooling | n/a | Open — from the first `deploy-docker.yml` dispatch |
+| 52 | One malformed analytics file 500s the whole dashboard | S–M | Low | Med | Open — split from PR #51's third review |
 | ~~34~~ | Docker image was 1.57 GB for 652 kB of code | M | n/a — packaging | Med | **Closed** — 324 MB |
 | ~~13~~ | Device-code login: dead expiry check, no timeout | S | Low | Med | **Closed** — PR #37, `65662aa` |
 | ~~38~~ | Device response missing `interval` kills the process | XS | Low | Low–Med | **Closed** — PR #41, `aef9778` |

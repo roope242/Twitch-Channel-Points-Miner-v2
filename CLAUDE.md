@@ -307,9 +307,12 @@ route (`POST /refresh_followers`); keep that in mind before adding more.
 (added in #49) is the pattern. The tmp cwd is not optional: `AnalyticsServer.__init__` calls
 `check_assets()`, which writes `./assets/` into whatever directory you are in, so running it from the
 repo root dirties the tree. Point `Settings.analytics_path` at a tmp dir and write JSON fixtures into
-it. **`/json/<streamer>` is not the only route that reads those files** — `get_challenge_points` and
-`get_last_activity` call `read_json` too, so `/streamers` and `/json_all` fail on the same malformed
-input; check all three when touching `filter_datas`.
+it. **`/json/<streamer>` is not the only route that reads those files.** `read_json` has three
+callers: the route itself, `json_all()` directly, and `get_challenge_points`/`get_last_activity`,
+which is how `/streamers` reaches it. So one malformed analytics file 500s all three routes — and
+`/streamers` is what fills the dashboard sidebar, so the symptom is a dashboard that renders nothing
+rather than one chart that fails. Grep `read_json`, not the helpers, when working out the blast
+radius of a change to `filter_datas`.
 
 `charts.html` pins its CDN includes with sha512 SRI. Regenerate with python `hashlib` — **`openssl`
 is not installed here** — and cross-check against `api.cdnjs.com/libraries/<lib>/<ver>?fields=sri`
